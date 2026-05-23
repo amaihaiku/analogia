@@ -1,0 +1,34 @@
+{
+  "luts": [
+    {
+      "file": "kodachrome64.cube",
+      "name": "KODACHROME 64",
+      "sub": "Rich contrast · Warm reds · Cyan shadows"
+    },
+    {
+      "file": "fuji_superia.cube",
+      "name": "FUJI SUPERIA 400",
+      "sub": "Teal shadows · Soft skin · Lifted blacks"
+    },
+    {
+      "file": "fuji_velvia.cube",
+      "name": "FUJI VELVIA 50",
+      "sub": "Ultra saturated · Deep shadows · Vivid"
+    },
+    {
+      "file": "kodak_portra.cube",
+      "name": "KODAK PORTRA 400",
+      "sub": "Natural skin · Pastel palette · Fine grain"
+    },
+    {
+      "file": "cinestill_800t.cube",
+      "name": "CINESTILL 800T",
+      "sub": "Tungsten · Halation · Cinematic"
+    },
+    {
+      "file": "ilford_hp5.cube",
+      "name": "ILFORD HP5",
+      "sub": "Classic B&W · Wide latitude"
+    }
+  ]
+}

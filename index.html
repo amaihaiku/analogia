@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>ANALOGIA RF-1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- FILM MODAL -->
+<div id="film-modal" class="modal hidden">
+  <div class="modal-backdrop" id="modal-backdrop"></div>
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">FILM SZIMULÁCIÓ</span>
+      <button class="modal-close" id="modal-close">✕</button>
+    </div>
+    <div class="modal-list" id="film-list"></div>
+    <div class="modal-sep"></div>
+    <label class="modal-upload-btn">
+      <span>+ SAJÁT LUT FELTÖLTÉSE (.cube)</span>
+      <input type="file" id="lut-upload" accept=".cube"/>
+    </label>
+  </div>
+</div>
+
+<!-- MAIN SHELL -->
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="brand-wrap">
+      <span class="brand">ANALOGIA</span>
+      <span class="model">RF-1</span>
+    </div>
+    <button class="film-btn" id="film-btn">
+      <span class="film-btn-label" id="film-label">KODACHROME 64</span>
+      <span class="film-btn-arrow">▾</span>
+    </button>
+    <div class="topbar-right">
+      <span class="hud-ev" id="hud-ev">±0.0</span>
+    </div>
+  </header>
+
+  <!-- VIEWFINDER -->
+  <div class="vf-wrap" id="vf-wrap">
+    <div class="vf-bezel">
+      <div class="bc tl"></div><div class="bc tr"></div>
+      <div class="bc bl"></div><div class="bc br"></div>
+      <!-- WebGL canvas for grain overlay -->
+      <canvas id="gl-canvas" class="gl-overlay"></canvas>
+      <!-- Main preview canvas -->
+      <canvas id="preview"></canvas>
+      <!-- HUD -->
+      <div class="vf-hud">
+        <div class="hud-row top">
+          <span id="hud-mode-val" class="hud-val">—</span>
+          <span id="hud-focus" class="hud-dim">AF</span>
+        </div>
+        <div class="hud-row bot">
+          <span id="hud-res" class="hud-dim">—</span>
+          <span id="hud-zoom" class="hud-dim">1.0×</span>
+        </div>
+      </div>
+      <!-- No permission -->
+      <div class="noperm" id="noperm">
+        <div class="noperm-icon">⊘</div>
+        <p>NINCS KAMERA</p>
+        <small>Engedélyezd a kamerát</small>
+        <button class="perm-btn" id="perm-btn">ENGEDÉLYEZÉS</button>
+        <small id="perm-err"></small>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM CONTROLS -->
+  <div class="controls">
+
+    <!-- MODE BUTTONS -->
+    <div class="mode-bar">
+      <button class="mode-btn active" data-mode="exposure">
+        <span class="led"></span>EV
+      </button>
+      <button class="mode-btn" data-mode="focus">
+        <span class="led"></span>FOCUS
+      </button>
+      <button class="mode-btn" data-mode="zoom">
+        <span class="led"></span>ZOOM
+      </button>
+      <button class="mode-btn" data-mode="grain">
+        <span class="led"></span>GRAIN
+      </button>
+      <button class="mode-btn" data-mode="vignette">
+        <span class="led"></span>VIGN
+      </button>
+    </div>
+
+    <!-- DIAL -->
+    <div class="dial-wrap">
+      <div class="dial-track" id="dial-track">
+        <div class="dial-inner" id="dial-inner">
+          <div class="dial-ticks" id="dial-ticks"></div>
+        </div>
+      </div>
+      <div class="dial-center-mark"></div>
+    </div>
+
+    <!-- GRAIN SIZE (csak grain módban látható) -->
+    <div class="grain-size-row hidden" id="grain-size-row">
+      <span class="gs-label">GRAIN SIZE</span>
+      <input type="range" id="grain-size" min="1" max="8" value="2" step="0.5" class="gs-slider"/>
+      <span class="gs-val" id="gs-val">2.0</span>
+    </div>
+
+    <!-- SHUTTER ROW -->
+    <div class="shutter-row">
+      <div class="date-group">
+        <label class="tog-wrap">
+          <input type="checkbox" id="date-tog"/>
+          <div class="tog-track"><div class="tog-thumb"></div></div>
+        </label>
+        <span class="tog-lbl">DÁTUM</span>
+      </div>
+      <button class="shutter" id="shutter">
+        <span class="sh-ring"></span>
+        <span class="sh-core"></span>
+      </button>
+      <div class="frame-group">
+        <select class="frame-sel" id="frame-sel">
+          <option value="none">Nincs keret</option>
+          <option value="polaroid">Polaroid</option>
+          <option value="film">Film Strip</option>
+        </select>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<video id="vid" playsinline autoplay muted style="display:none"></video>
+<canvas id="save-canvas" style="display:none"></canvas>
+<script src="app.js"></script>
+</body>
+</html>
