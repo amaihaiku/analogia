@@ -1,0 +1,13 @@
+{
+  "name": "ANALOGIA RF-1",
+  "short_name": "ANALOGIA",
+  "description": "Retro film camera web app",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#141210",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

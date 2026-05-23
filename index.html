@@ -2,11 +2,16 @@
 <html lang="hu">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#141210"/>
 <title>ANALOGIA RF-1</title>
+<!-- PWA Icon: blende SVG, fekete alapon -->
+<link rel="icon" type="image/svg+xml" href="icon.svg"/>
+<link rel="apple-touch-icon" href="icon-180.png"/>
+<link rel="manifest" href="manifest.json"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="style.css"/>
@@ -24,16 +29,15 @@
     <div class="modal-list" id="film-list"></div>
     <div class="modal-sep"></div>
     <label class="modal-upload-btn">
-      <span>+ SAJÁT LUT FELTÖLTÉSE (.cube)</span>
+      <span>+ SAJÁT LUT (.cube)</span>
       <input type="file" id="lut-upload" accept=".cube"/>
     </label>
   </div>
 </div>
 
-<!-- MAIN SHELL -->
-<div class="shell" id="shell">
+<div class="shell">
 
-  <!-- TOP BAR -->
+  <!-- TOP BAR (portrait) / LEFT COLUMN (landscape) -->
   <header class="topbar">
     <div class="brand-wrap">
       <span class="brand">ANALOGIA</span>
@@ -50,28 +54,23 @@
   </header>
 
   <!-- VIEWFINDER -->
-  <div class="vf-wrap" id="vf-wrap">
+  <div class="vf-wrap">
     <div class="vf-bezel" id="vf-bezel">
       <div class="bc tl"></div><div class="bc tr"></div>
       <div class="bc bl"></div><div class="bc br"></div>
-      <!-- Single WebGL canvas — full pipeline on GPU -->
       <canvas id="gl-canvas"></canvas>
-      <!-- Focus tap overlay -->
       <div class="focus-overlay" id="focus-overlay"></div>
-      <!-- Focus ring indicator -->
       <div class="focus-ring hidden" id="focus-ring"></div>
-      <!-- HUD -->
       <div class="vf-hud">
         <div class="hud-row top">
-          <span id="hud-mode-val" class="hud-val">±0.0 EV</span>
-          <span id="hud-focus-label" class="hud-dim">AF</span>
+          <span class="hud-val" id="hud-mode-val">±0.0 EV</span>
+          <span class="hud-dim" id="hud-focus-label">AF</span>
         </div>
         <div class="hud-row bot">
-          <span id="hud-res" class="hud-dim">—</span>
-          <span id="hud-mode-name" class="hud-dim">EXPOSURE</span>
+          <span class="hud-dim" id="hud-res">—</span>
+          <span class="hud-dim" id="hud-mode-name">EXPOSURE</span>
         </div>
       </div>
-      <!-- No permission -->
       <div class="noperm" id="noperm">
         <div class="noperm-icon">⊘</div>
         <p>NINCS KAMERA</p>
@@ -82,17 +81,17 @@
     </div>
   </div>
 
-  <!-- BOTTOM CONTROLS (portrait) -->
-  <div class="controls-portrait" id="ctrl-portrait">
+  <!-- PORTRAIT CONTROLS (bottom) -->
+  <div class="ctrl-p">
     <div class="mode-bar">
       <button class="mode-btn active" data-mode="exposure"><span class="led"></span>EV</button>
       <button class="mode-btn" data-mode="zoom"><span class="led"></span>ZOOM</button>
       <button class="mode-btn" data-mode="grain"><span class="led"></span>GRAIN</button>
       <button class="mode-btn" data-mode="vignette"><span class="led"></span>VIGN</button>
     </div>
-    <div class="dial-wrap" id="dial-wrap-p">
-      <div class="dial-track"><div class="dial-ticks" id="dial-ticks-p"></div></div>
-      <div class="dial-center-mark"></div>
+    <div class="dial-h" id="dial-wrap-p">
+      <div class="dial-track-h"><div class="dial-ticks-h" id="dial-ticks-p"></div></div>
+      <div class="dial-center-h"></div>
     </div>
     <div class="shutter-row">
       <div class="toggle-group">
@@ -100,7 +99,7 @@
         <span class="tog-lbl">DÁTUM</span>
       </div>
       <button class="shutter" id="shutter-p"><span class="sh-ring"></span><span class="sh-core"></span></button>
-      <div class="frame-group">
+      <div>
         <select class="frame-sel" id="frame-sel-p">
           <option value="none">Nincs keret</option>
           <option value="polaroid">Polaroid</option>
@@ -110,22 +109,22 @@
     </div>
   </div>
 
-  <!-- RIGHT SIDE CONTROLS (landscape) -->
-  <div class="controls-landscape" id="ctrl-landscape">
+  <!-- LANDSCAPE CONTROLS (right) -->
+  <div class="ctrl-l">
     <div class="mode-bar-v">
       <button class="mode-btn active" data-mode="exposure"><span class="led"></span>EV</button>
       <button class="mode-btn" data-mode="zoom"><span class="led"></span>ZOOM</button>
       <button class="mode-btn" data-mode="grain"><span class="led"></span>GRAIN</button>
       <button class="mode-btn" data-mode="vignette"><span class="led"></span>VIGN</button>
     </div>
-    <div class="dial-wrap-v" id="dial-wrap-l">
+    <div class="dial-v" id="dial-wrap-l">
       <div class="dial-track-v"><div class="dial-ticks-v" id="dial-ticks-l"></div></div>
-      <div class="dial-center-mark-v"></div>
+      <div class="dial-center-v"></div>
     </div>
     <div class="shutter-col">
       <button class="shutter" id="shutter-l"><span class="sh-ring"></span><span class="sh-core"></span></button>
-      <label class="tog-wrap-v"><input type="checkbox" id="date-tog-l"/><div class="tog-track"><div class="tog-thumb"></div></div></label>
-      <select class="frame-sel" id="frame-sel-l">
+      <label class="tog-wrap"><input type="checkbox" id="date-tog-l"/><div class="tog-track"><div class="tog-thumb"></div></div></label>
+      <select class="frame-sel-sm" id="frame-sel-l">
         <option value="none">—</option>
         <option value="polaroid">POL</option>
         <option value="film">FILM</option>
@@ -133,7 +132,7 @@
     </div>
   </div>
 
-</div><!-- .shell -->
+</div>
 
 <video id="vid" playsinline autoplay muted style="display:none"></video>
 <canvas id="save-canvas" style="display:none"></canvas>
