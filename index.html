@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <title>ANALOGIA RF-1</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet"/>
@@ -30,7 +31,7 @@
 </div>
 
 <!-- MAIN SHELL -->
-<div class="shell">
+<div class="shell" id="shell">
 
   <!-- TOP BAR -->
   <header class="topbar">
@@ -42,105 +43,97 @@
       <span class="film-btn-label" id="film-label">KODACHROME 64</span>
       <span class="film-btn-arrow">▾</span>
     </button>
-    <div class="topbar-right">
+    <div class="hud-right">
       <span class="hud-ev" id="hud-ev">±0.0</span>
+      <span class="hud-zoom" id="hud-zoom">1.0×</span>
     </div>
   </header>
 
   <!-- VIEWFINDER -->
   <div class="vf-wrap" id="vf-wrap">
-    <div class="vf-bezel">
+    <div class="vf-bezel" id="vf-bezel">
       <div class="bc tl"></div><div class="bc tr"></div>
       <div class="bc bl"></div><div class="bc br"></div>
-      <!-- WebGL canvas for grain overlay -->
-      <canvas id="gl-canvas" class="gl-overlay"></canvas>
-      <!-- Main preview canvas -->
-      <canvas id="preview"></canvas>
+      <!-- Single WebGL canvas — full pipeline on GPU -->
+      <canvas id="gl-canvas"></canvas>
+      <!-- Focus tap overlay -->
+      <div class="focus-overlay" id="focus-overlay"></div>
+      <!-- Focus ring indicator -->
+      <div class="focus-ring hidden" id="focus-ring"></div>
       <!-- HUD -->
       <div class="vf-hud">
         <div class="hud-row top">
-          <span id="hud-mode-val" class="hud-val">—</span>
-          <span id="hud-focus" class="hud-dim">AF</span>
+          <span id="hud-mode-val" class="hud-val">±0.0 EV</span>
+          <span id="hud-focus-label" class="hud-dim">AF</span>
         </div>
         <div class="hud-row bot">
           <span id="hud-res" class="hud-dim">—</span>
-          <span id="hud-zoom" class="hud-dim">1.0×</span>
+          <span id="hud-mode-name" class="hud-dim">EXPOSURE</span>
         </div>
       </div>
       <!-- No permission -->
       <div class="noperm" id="noperm">
         <div class="noperm-icon">⊘</div>
         <p>NINCS KAMERA</p>
-        <small>Engedélyezd a kamerát</small>
+        <small>Engedélyezd a kamerát a folytatáshoz</small>
         <button class="perm-btn" id="perm-btn">ENGEDÉLYEZÉS</button>
         <small id="perm-err"></small>
       </div>
     </div>
   </div>
 
-  <!-- BOTTOM CONTROLS -->
-  <div class="controls">
-
-    <!-- MODE BUTTONS -->
+  <!-- BOTTOM CONTROLS (portrait) -->
+  <div class="controls-portrait" id="ctrl-portrait">
     <div class="mode-bar">
-      <button class="mode-btn active" data-mode="exposure">
-        <span class="led"></span>EV
-      </button>
-      <button class="mode-btn" data-mode="focus">
-        <span class="led"></span>FOCUS
-      </button>
-      <button class="mode-btn" data-mode="zoom">
-        <span class="led"></span>ZOOM
-      </button>
-      <button class="mode-btn" data-mode="grain">
-        <span class="led"></span>GRAIN
-      </button>
-      <button class="mode-btn" data-mode="vignette">
-        <span class="led"></span>VIGN
-      </button>
+      <button class="mode-btn active" data-mode="exposure"><span class="led"></span>EV</button>
+      <button class="mode-btn" data-mode="zoom"><span class="led"></span>ZOOM</button>
+      <button class="mode-btn" data-mode="grain"><span class="led"></span>GRAIN</button>
+      <button class="mode-btn" data-mode="vignette"><span class="led"></span>VIGN</button>
     </div>
-
-    <!-- DIAL -->
-    <div class="dial-wrap">
-      <div class="dial-track" id="dial-track">
-        <div class="dial-inner" id="dial-inner">
-          <div class="dial-ticks" id="dial-ticks"></div>
-        </div>
-      </div>
+    <div class="dial-wrap" id="dial-wrap-p">
+      <div class="dial-track"><div class="dial-ticks" id="dial-ticks-p"></div></div>
       <div class="dial-center-mark"></div>
     </div>
-
-    <!-- GRAIN SIZE (csak grain módban látható) -->
-    <div class="grain-size-row hidden" id="grain-size-row">
-      <span class="gs-label">GRAIN SIZE</span>
-      <input type="range" id="grain-size" min="1" max="8" value="2" step="0.5" class="gs-slider"/>
-      <span class="gs-val" id="gs-val">2.0</span>
-    </div>
-
-    <!-- SHUTTER ROW -->
     <div class="shutter-row">
-      <div class="date-group">
-        <label class="tog-wrap">
-          <input type="checkbox" id="date-tog"/>
-          <div class="tog-track"><div class="tog-thumb"></div></div>
-        </label>
+      <div class="toggle-group">
+        <label class="tog-wrap"><input type="checkbox" id="date-tog"/><div class="tog-track"><div class="tog-thumb"></div></div></label>
         <span class="tog-lbl">DÁTUM</span>
       </div>
-      <button class="shutter" id="shutter">
-        <span class="sh-ring"></span>
-        <span class="sh-core"></span>
-      </button>
+      <button class="shutter" id="shutter-p"><span class="sh-ring"></span><span class="sh-core"></span></button>
       <div class="frame-group">
-        <select class="frame-sel" id="frame-sel">
+        <select class="frame-sel" id="frame-sel-p">
           <option value="none">Nincs keret</option>
           <option value="polaroid">Polaroid</option>
           <option value="film">Film Strip</option>
         </select>
       </div>
     </div>
-
   </div>
-</div>
+
+  <!-- RIGHT SIDE CONTROLS (landscape) -->
+  <div class="controls-landscape" id="ctrl-landscape">
+    <div class="mode-bar-v">
+      <button class="mode-btn active" data-mode="exposure"><span class="led"></span>EV</button>
+      <button class="mode-btn" data-mode="zoom"><span class="led"></span>ZOOM</button>
+      <button class="mode-btn" data-mode="grain"><span class="led"></span>GRAIN</button>
+      <button class="mode-btn" data-mode="vignette"><span class="led"></span>VIGN</button>
+    </div>
+    <div class="dial-wrap-v" id="dial-wrap-l">
+      <div class="dial-track-v"><div class="dial-ticks-v" id="dial-ticks-l"></div></div>
+      <div class="dial-center-mark-v"></div>
+    </div>
+    <div class="shutter-col">
+      <button class="shutter" id="shutter-l"><span class="sh-ring"></span><span class="sh-core"></span></button>
+      <label class="tog-wrap-v"><input type="checkbox" id="date-tog-l"/><div class="tog-track"><div class="tog-thumb"></div></div></label>
+      <select class="frame-sel" id="frame-sel-l">
+        <option value="none">—</option>
+        <option value="polaroid">POL</option>
+        <option value="film">FILM</option>
+      </select>
+    </div>
+  </div>
+
+</div><!-- .shell -->
 
 <video id="vid" playsinline autoplay muted style="display:none"></video>
 <canvas id="save-canvas" style="display:none"></canvas>
