@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="theme-color" content="#141210"/>
-<title>ANALOGIA RF-1</title>
+<title>Analogia</title>
 <link rel="icon" type="image/svg+xml" href="icon.svg"/>
 <link rel="manifest" href="manifest.json"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -20,8 +20,16 @@
 <div id="rotate-overlay" class="rotate-overlay hidden">
   <div class="rotate-content">
     <div class="rotate-icon">⟳</div>
-    <p class="rotate-text">Forgasd vissza álló módba</p>
-    <small>Ez az alkalmazás álló tájoláshoz készült</small>
+    <p class="rotate-title">Forgasd vissza álló módba</p>
+    <small>Az Analogia álló tájoláshoz készült</small>
+  </div>
+</div>
+
+<!-- SAVING OVERLAY -->
+<div id="saving-overlay" class="saving-overlay hidden">
+  <div class="saving-box">
+    <div class="saving-spinner"></div>
+    <p>Fénykép mentése…</p>
   </div>
 </div>
 
@@ -47,7 +55,7 @@
   <!-- TOPBAR -->
   <header class="topbar">
     <div class="brand-wrap">
-      <span class="brand">ANALOGIA</span>
+      <span class="brand">Analogia</span>
       <span class="model">RF-1</span>
     </div>
     <button class="film-btn" id="film-btn">
@@ -59,7 +67,7 @@
     </div>
   </header>
 
-  <!-- VIEWFINDER -->
+  <!-- VIEWFINDER 1:1 -->
   <div class="vf-wrap">
     <div class="vf-bezel">
       <div class="bc tl"></div><div class="bc tr"></div>
@@ -68,14 +76,8 @@
       <div class="focus-overlay" id="focus-overlay"></div>
       <div class="focus-ring hidden" id="focus-ring"></div>
       <div class="vf-hud">
-        <div class="hud-row">
-          <span class="hud-val" id="hud-mode-val">±0.0 EV</span>
-          <span class="hud-dim" id="hud-focus-label">AF</span>
-        </div>
-        <div class="hud-row">
-          <span class="hud-dim" id="hud-res">—</span>
-          <span class="hud-dim" id="hud-mode-name">EXPOSURE</span>
-        </div>
+        <div class="hud-row"><span class="hud-val" id="hud-mode-val">±0.0 EV</span><span class="hud-dim" id="hud-focus-label">AF</span></div>
+        <div class="hud-row"><span class="hud-dim" id="hud-res">—</span><span class="hud-dim" id="hud-mode-name">EXPOSURE</span></div>
       </div>
       <div class="noperm" id="noperm">
         <div class="noperm-icon">⊘</div>
@@ -90,7 +92,6 @@
   <!-- BOTTOM CONTROLS -->
   <div class="ctrl-bottom">
 
-    <!-- MODE BUTTONS -->
     <div class="mode-bar">
       <button class="mode-btn active" data-mode="exposure"><span class="led"></span>EV</button>
       <button class="mode-btn" data-mode="zoom"><span class="led"></span>ZOOM</button>
@@ -98,13 +99,11 @@
       <button class="mode-btn" data-mode="vignette"><span class="led"></span>VIGN</button>
     </div>
 
-    <!-- DIAL -->
-    <div class="dial-h" id="dial-wrap-p">
-      <div class="dial-track-h"><div class="dial-ticks-h" id="dial-ticks-p"></div></div>
+    <div class="dial-h" id="dial-wrap">
+      <div class="dial-track-h"><div class="dial-ticks-h" id="dial-ticks"></div></div>
       <div class="dial-center-h"></div>
     </div>
 
-    <!-- DATE + FRAME ROW -->
     <div class="aux-row">
       <div class="toggle-group">
         <label class="tog-wrap">
@@ -113,16 +112,15 @@
         </label>
         <span class="tog-lbl">DÁTUM</span>
       </div>
-      <select class="frame-sel" id="frame-sel-p">
+      <select class="frame-sel" id="frame-sel">
         <option value="none">— Keret —</option>
         <option value="polaroid">Polaroid</option>
         <option value="film">Film Strip</option>
       </select>
     </div>
 
-    <!-- SHUTTER -->
     <div class="shutter-row">
-      <button class="shutter" id="shutter-p">
+      <button class="shutter" id="shutter">
         <span class="sh-ring"></span>
         <span class="sh-core"></span>
       </button>
