@@ -351,7 +351,7 @@ async function capture(){
 
   // Background
   if(frame==='polaroid'){sCtx.fillStyle='#f2ede4';}
-  else{sCtx.fillStyle='#000';}  // black bg for antik, none, film
+  else{sCtx.fillStyle='#000';}
   sCtx.fillRect(0,0,cw,ch);
   if(frame==='film')drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
 
@@ -360,11 +360,10 @@ async function capture(){
   const tc=tmp.getContext('2d',{willReadFrequently:true});
   tc.drawImage(vid,sx,sy,side,side,0,0,photoS,photoS);
 
-  // Pixel pipeline on photoS×photoS (much smaller than 1920!)
+  // Pixel pipeline
   const id=tc.getImageData(0,0,photoS,photoS),pd=id.data;
   const evm=Math.pow(2,S.ev),va=S.vignette;
   const ld=S.simKey==='__lut__'&&S.cpuLut?S.cpuLut:PROF[S.simKey]?.lut;
-
   for(let i=0;i<pd.length;i+=4){
     let r=pd[i]*evm,g=pd[i+1]*evm,b=pd[i+2]*evm;
     if(r>255)r=255;if(g>255)g=255;if(b>255)b=255;
@@ -379,10 +378,31 @@ async function capture(){
   }
   tc.putImageData(id,0,0);
 
-  // Draw photo onto save canvas
-  sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
+  if(frame==='antik'){
+    // Strategy: draw the original frame (with its black inner area) first,
+    // then use 'destination-over' to place the photo BEHIND it.
+    // The frame's black pixels act as a window — the photo shows through.
+    try{
+      const fimg=await loadImg('antik_keret_web.png');
+      // 1. Draw frame on top (source-over, default)
+      sCtx.globalCompositeOperation='source-over';
+      sCtx.drawImage(fimg,0,0,OUT,OUT);
+      // 2. Draw photo BEHIND the frame using destination-over
+      //    This places the photo under existing pixels,
+      //    so the ornament and frame stay intact on top
+      sCtx.globalCompositeOperation='destination-over';
+      sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
+      // 3. Reset composite mode
+      sCtx.globalCompositeOperation='source-over';
+    }catch(e){
+      console.warn('Antik frame failed, fallback',e);
+      sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
+    }
+  } else {
+    sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
+  }
 
-  // Date stamp (inside photo area)
+  // Date stamp
   if(document.getElementById('date-tog').checked){
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -392,14 +412,6 @@ async function capture(){
     sCtx.fillStyle='rgba(0,0,0,.4)';sCtx.fillText(ds,tx+2,ty+2);
     sCtx.fillStyle=(frame==='antik')?'#7a6440':'#e8830a';
     sCtx.fillText(ds,tx,ty);
-  }
-
-  // ── Antik frame overlay LAST (on top of photo) ──
-  if(frame==='antik'){
-    try{
-      const fimg=await loadImg('antik_keret_web.png');
-      sCtx.drawImage(fimg,0,0,OUT,OUT);
-    }catch(e){console.warn('Antik frame load failed',e);}
   }
 
   // Polaroid signature
