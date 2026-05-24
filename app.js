@@ -327,17 +327,8 @@ async function capture(){
   let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
   if(frame==='antik'){
-    // Frame PNG is 1024x1024, inner black area: top=157,bot=839,left=160,right=865
-    // Scale to OUT=1080
-    const scale=OUT/1024;
-    const iT=Math.round(157*scale),iB=Math.round(839*scale);
-    const iL=Math.round(160*scale),iR=Math.round(865*scale);
-    const iW=iR-iL,iH=iB-iT;
-    const margin=12;
-    photoS=Math.min(iW,iH)-margin*2;
-    photoX=Math.round(iL+(iW-photoS)/2);
-    photoY=Math.round(iT+(iH-photoS)/2);
-    cw=OUT;ch=OUT;
+    // Frame has transparent inner — photo fills full canvas, frame composited on top
+    photoS=OUT; photoX=0; photoY=0; cw=OUT; ch=OUT;
   } else if(frame==='polaroid'){
     const pad=Math.round(OUT*.06),bot=Math.round(OUT*.22);
     cw=OUT+pad*2;ch=OUT+pad+bot;photoX=pad;photoY=pad;photoS=OUT;
@@ -379,25 +370,12 @@ async function capture(){
   tc.putImageData(id,0,0);
 
   if(frame==='antik'){
-    // Strategy: draw the original frame (with its black inner area) first,
-    // then use 'destination-over' to place the photo BEHIND it.
-    // The frame's black pixels act as a window — the photo shows through.
+    // Photo fills exact inner rect, frame drawn on top covers the borders
+    sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
     try{
       const fimg=await loadImg('antik_keret_web.png');
-      // 1. Draw frame on top (source-over, default)
-      sCtx.globalCompositeOperation='source-over';
       sCtx.drawImage(fimg,0,0,OUT,OUT);
-      // 2. Draw photo BEHIND the frame using destination-over
-      //    This places the photo under existing pixels,
-      //    so the ornament and frame stay intact on top
-      sCtx.globalCompositeOperation='destination-over';
-      sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
-      // 3. Reset composite mode
-      sCtx.globalCompositeOperation='source-over';
-    }catch(e){
-      console.warn('Antik frame failed, fallback',e);
-      sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
-    }
+    }catch(e){console.warn('Antik frame failed',e);}
   } else {
     sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
   }
