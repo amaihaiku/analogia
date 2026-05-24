@@ -253,35 +253,51 @@ function render(){
 
 /* ── Dial ── */
 const MODES={
-  exposure:{min:-2,max:2,step:.05,def:0,fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' EV'},
-  zoom:    {min:1,max:4,step:.05,def:1,fmt:v=>v.toFixed(1)+'×'},
-  grain:   {min:0,max:1,step:.02,def:0,fmt:v=>Math.round(v*100)+'%'},
-  vignette:{min:0,max:1,step:.02,def:0,fmt:v=>Math.round(v*100)+'%'},
+  exposure:{min:-2,  max:2,  step:.05, hasCenter:true,  fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' EV'},
+  zoom:    {min:1.0, max:4.0,step:.05, hasCenter:false, fmt:v=>v.toFixed(1)+'×'},
+  grain:   {min:0,   max:1,  step:.02, hasCenter:false, fmt:v=>Math.round(v*100)+'%'},
+  vignette:{min:0,   max:1,  step:.02, hasCenter:false, fmt:v=>Math.round(v*100)+'%'},
 };
-const TPX=13,NTICKS=60;
+const TPX=13; // px per tick
 let ddrag=false,dlast=0,doff=0;
 
+function nTicks(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
 function getV(){return{exposure:S.ev,zoom:S.zoom,grain:S.grain,vignette:S.vignette}[S.mode];}
 function setV(v){
-  const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
+  const m=MODES[S.mode];
+  v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
   if(S.mode==='exposure')S.ev=v;
   else if(S.mode==='zoom')S.zoom=v;
   else if(S.mode==='grain')S.grain=v;
   else S.vignette=v;
   return v;
 }
-function o2v(o){const m=MODES[S.mode];return m.def-o/(NTICKS*TPX)*(m.max-m.min);}
-function v2o(v){const m=MODES[S.mode];return-(v-m.def)/(m.max-m.min)*NTICKS*TPX;}
+// offset: 0 = min value (leftmost tick at center), -(N*TPX) = max value
+function o2v(o){
+  const m=MODES[S.mode],N=nTicks();
+  return m.min+(-o/N/TPX)*(m.max-m.min);
+}
+function v2o(v){
+  const m=MODES[S.mode],N=nTicks();
+  return -((v-m.min)/(m.max-m.min))*N*TPX;
+}
 
 function buildDial(){
   const el=document.getElementById('dial-ticks');if(!el)return;
   el.innerHTML='';
-  for(let i=0;i<NTICKS;i++){
-    const t=document.createElement('div'),maj=i%5===0,zero=i===NTICKS/2;
-    t.className='dt'+(maj?' maj':'')+(zero?' zero':'');
+  const m=MODES[S.mode],N=nTicks();
+  // center tick index = where value=0 for exposure, or min for others
+  const centerIdx=m.hasCenter?Math.round((0-m.min)/m.step):-1;
+  for(let i=0;i<=N;i++){
+    const t=document.createElement('div');
+    const maj=i%5===0,isCenter=(i===centerIdx);
+    t.className='dt'+(maj?' maj':'')+(isCenter?' zero':'');
     t.style.height=(maj?28:15)+'px';
     el.appendChild(t);
   }
+  // Show/hide center mark line based on mode
+  const cm=document.querySelector('.dial-center-h');
+  if(cm) cm.style.opacity=m.hasCenter?'1':'0';
 }
 function syncDial(){
   const v=getV(),o=v2o(v);doff=o;
@@ -408,33 +424,40 @@ async function capture(){
   const sx=(vw-side)/2,sy=(vh-side)/2;
 
   const frame=document.getElementById('frame-sel').value;
-  // Antik frame: square, same size as photo (frame overlaid on top)
-  let cw=OUT,ch=OUT,cx=0,cy=0;
+  // Canvas size for each frame type
+  let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
   if(frame==='antik'){
-    // Square: photo fills inner area, frame overlaid — same canvas size
-    cw=OUT;ch=OUT;cx=0;cy=0;
+    // Frame is 1024x1024 → scale to OUT=1920
+    // Inner black area at 1024px: top=157,bot=901,left=159,right=865
+    const sc=OUT/1024;
+    const iT=Math.round(157*sc),iB=Math.round(901*sc),iL=Math.round(159*sc),iR=Math.round(865*sc);
+    const iW=iR-iL,iH=iB-iT;
+    const margin=18;
+    photoS=Math.min(iW,iH)-margin*2;
+    photoX=iL+(iW-photoS)/2;
+    photoY=iT+(iH-photoS)/2;
+    cw=OUT;ch=OUT;
   } else if(frame==='polaroid'){
-    const pad=Math.round(OUT*.06);
-    const bot=Math.round(OUT*.22);
-    cw=OUT+pad*2;ch=OUT+pad+bot;cx=pad;cy=pad;
+    const pad=Math.round(OUT*.06),bot=Math.round(OUT*.22);
+    cw=OUT+pad*2;ch=OUT+pad+bot;photoX=pad;photoY=pad;photoS=OUT;
   } else if(frame==='film'){
     const sh=Math.round(OUT*.13);
-    ch=OUT+sh*2;cy=sh;
+    ch=OUT+sh*2;photoX=0;photoY=sh;photoS=OUT;
   }
 
   const sv=document.getElementById('save-canvas');
   sv.width=cw;sv.height=ch;
   const sc2=sv.getContext('2d');
-
+  sc2.fillStyle='#000';sc2.fillRect(0,0,cw,ch);
   if(frame==='polaroid'){sc2.fillStyle='#f2ede4';sc2.fillRect(0,0,cw,ch);}
-  else if(frame==='film'){drawFilm(sc2,cw,ch,ch-OUT-Math.round(OUT*.13));}
-  else{sc2.fillStyle='#000';sc2.fillRect(0,0,cw,ch);}  // antik and none
+  else if(frame==='film'){drawFilm(sc2,cw,ch,Math.round(OUT*.13));}
 
-  const tmp=document.createElement('canvas');tmp.width=OUT;tmp.height=OUT;
+  // Render photo into the correct position/size
+  const tmp=document.createElement('canvas');tmp.width=photoS;tmp.height=photoS;
   const tc=tmp.getContext('2d',{willReadFrequently:true});
-  tc.drawImage(vid,sx,sy,side,side,0,0,OUT,OUT);
+  tc.drawImage(vid,sx,sy,side,side,0,0,photoS,photoS);
 
-  const id=tc.getImageData(0,0,OUT,OUT),pd=id.data;
+  const id=tc.getImageData(0,0,photoS,photoS),pd=id.data;
   const evm=Math.pow(2,S.ev),va=S.vignette;
   const ld=S.simKey==='__lut__'&&S.cpuLut?S.cpuLut:PROF[S.simKey]?.lut;
 
@@ -442,40 +465,41 @@ async function capture(){
     let r=Math.min(255,pd[i]*evm),g=Math.min(255,pd[i+1]*evm),b=Math.min(255,pd[i+2]*evm);
     if(ld){const rgb=cpuLUT(r,g,b,ld);r=rgb[0];g=rgb[1];b=rgb[2];}
     if(va>0){
-      const pi=i>>2,x=pi%OUT,y=pi/OUT|0;
-      const dx=(x/OUT-.5)*2,dy=(y/OUT-.5)*2;
+      const pi=i>>2,x=pi%photoS,y=pi/photoS|0;
+      const dx=(x/photoS-.5)*2,dy=(y/photoS-.5)*2;
       const vig=Math.max(0,Math.min(1,(dx*dx+dy*dy-.3)/(2-.3)));
       const vm=1-va*vig*.88;r*=vm;g*=vm;b*=vm;
     }
     pd[i]=c255(r);pd[i+1]=c255(g);pd[i+2]=c255(b);
   }
   tc.putImageData(id,0,0);
-  sc2.drawImage(tmp,cx,cy,OUT,OUT);
+  sc2.drawImage(tmp,photoX,photoY,photoS,photoS);
 
   // Date stamp
   if(document.getElementById('date-tog').checked){
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
-    const fs=Math.max(18,OUT*.038|0);
+    const fs=Math.max(18,photoS*.038|0);
     sc2.font=`bold ${fs}px Courier New`;sc2.textAlign='right';
-    const tx=cx+OUT-fs*.4,ty=cy+OUT-fs*.5;
-    sc2.fillStyle='rgba(0,0,0,.45)';sc2.fillText(ds,tx+2,ty+2);
-    sc2.fillStyle='#e8830a';sc2.fillText(ds,tx,ty);
+    // Position relative to photo area, inside frame
+    const tx=photoX+photoS-fs*.5,ty=photoY+photoS-fs*.5;
+    sc2.fillStyle='rgba(0,0,0,.4)';sc2.fillText(ds,tx+2,ty+2);
+    // Antik: brown date stamp to match frame; others: orange
+    sc2.fillStyle=(frame==='antik')?'#6b5a3a':'#e8830a';
+    sc2.fillText(ds,tx,ty);
   }
 
-  // Antik frame: load image and composite
+  // Antik frame overlay (drawn AFTER photo and date stamp)
   if(frame==='antik'){
     const fimg=await loadImg('antik_keret_web.png');
-    // Frame is 1024x1024, inner transparent area ~256..766 (750x510 → actually ~512x512 square)
-    // Scale frame to match output size
-    sc2.drawImage(fimg,0,0,cw,ch);
+    sc2.drawImage(fimg,0,0,OUT,OUT);
   }
 
   // Polaroid signature
   if(frame==='polaroid'){
     const fs=Math.round(OUT*.028);
     sc2.font=`${fs}px Courier New`;sc2.textAlign='right';sc2.fillStyle='#5a5040';
-    sc2.fillText('by Analogia',cx+OUT-Math.round(OUT*.04),ch-Math.round(OUT*.05));
+    sc2.fillText('by Analogia',photoX+photoS-Math.round(OUT*.02),ch-Math.round((ch-photoY-photoS)/2+fs*.3));
   }
 
   // Show photo in preview overlay — user saves with long press (iOS) or Web Share
@@ -548,7 +572,10 @@ async function initCam(){
 document.querySelectorAll('.mode-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
     document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');S.mode=btn.dataset.mode;syncDial();
+    btn.classList.add('active');
+    S.mode=btn.dataset.mode;
+    buildDial(); // rebuild ticks for new mode range
+    syncDial();
   });
 });
 document.getElementById('perm-btn').addEventListener('click',initCam);
