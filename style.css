@@ -51,7 +51,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 /* TOPBAR */
 .topbar{
   display:flex;
-  align-items:stretch;   /* children stretch to full height */
+  align-items:center;
   justify-content:space-between;
   padding:0 14px;
   background:var(--metal);
@@ -60,21 +60,37 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
   height:68px;
   gap:10px;
 }
-/* Every direct child uses flex to center itself vertically */
-.topbar>*{display:flex;align-items:center;}
-.brand-wrap{flex-direction:column;align-items:flex-start;justify-content:center;gap:0;flex-shrink:0}
-.brand{font-family:var(--display);font-size:28px;letter-spacing:.18em;color:var(--gold);line-height:1;display:block}
-.model{font-size:8px;letter-spacing:.35em;color:var(--dim);line-height:1;display:block;margin-top:1px}
+/* All three children: same fixed height box, content vertically centered */
+.brand-wrap{
+  display:flex;align-items:center;  /* center the ANALOGIA text vertically */
+  height:44px;flex-shrink:0;
+  position:relative;
+}
+.brand{
+  font-family:var(--display);font-size:30px;letter-spacing:.18em;
+  color:var(--gold);line-height:44px;  /* match box height so glyph centers */
+  display:block;
+}
+/* RF-1 model tag: absolute, doesn't affect brand baseline */
+.model{
+  position:absolute;bottom:-2px;left:2px;
+  font-size:8px;letter-spacing:.3em;color:var(--dim);line-height:1;
+}
 .film-btn{
-  flex:1;min-width:0;gap:7px;justify-content:center;
+  display:flex;align-items:center;justify-content:center;
+  flex:1;min-width:0;gap:7px;
+  height:44px;  /* same height as brand box */
   background:rgba(200,168,75,.08);border:1.5px solid var(--gold-dim);
   padding:0 12px;cursor:pointer;transition:background .1s;border-radius:3px;
 }
 .film-btn:active{background:var(--gold-glow);border-color:var(--gold)}
-.film-btn-label{font-size:13px;letter-spacing:.14em;color:var(--gold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
-.film-btn-arrow{font-size:12px;color:var(--gold-dim);flex-shrink:0}
-.hud-right{flex-shrink:0;justify-content:flex-end}
-.hud-ev{font-family:var(--display);font-size:26px;letter-spacing:.08em;color:var(--gold);line-height:1}
+.film-btn-label{font-size:13px;letter-spacing:.14em;color:var(--gold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;line-height:1}
+.film-btn-arrow{font-size:12px;color:var(--gold-dim);flex-shrink:0;line-height:1}
+.hud-right{
+  display:flex;align-items:center;justify-content:flex-end;
+  height:44px;flex-shrink:0;
+}
+.hud-ev{font-family:var(--display);font-size:28px;letter-spacing:.08em;color:var(--gold);line-height:44px}
 
 /* VIEWFINDER — 1:1 square */
 .vf-wrap{flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px 12px}

@@ -370,23 +370,18 @@ async function capture(){
   tc.putImageData(id,0,0);
 
   if(frame==='antik'){
-    // 1. Draw photo full size onto save canvas (no black bg needed)
-    sCtx.clearRect(0,0,cw,ch);           // transparent start
-    sCtx.drawImage(tmp,0,0,OUT,OUT);     // photo fills entire canvas
-    // 2. Draw transparent-inner frame on top — ornament overlaps photo naturally
+    // sCtx already has black background from fillRect above.
+    // Layer 1: photo fills entire canvas (covers black bg in inner area)
+    sCtx.drawImage(tmp,0,0,OUT,OUT);
+    // Layer 2: transparent-inner frame on top.
+    //   Frame's inner area is transparent → photo shows through.
+    //   Frame's ornament+border are opaque → they cover photo edges.
     try{
       const fimg=await loadImg('antik_keret_web.png');
       sCtx.drawImage(fimg,0,0,OUT,OUT);
     }catch(e){console.warn('Antik frame failed',e);}
-    // 3. Before JPEG export, flatten: draw everything onto white bg
-    //    (JPEG has no alpha — transparent pixels would become black)
-    const flat=document.createElement('canvas');flat.width=OUT;flat.height=OUT;
-    const fCtx=flat.getContext('2d');
-    fCtx.fillStyle='#000';fCtx.fillRect(0,0,OUT,OUT); // black bg outside frame
-    fCtx.drawImage(sv,0,0);
-    // Replace save canvas content with flattened version
-    sCtx.clearRect(0,0,cw,ch);
-    sCtx.drawImage(flat,0,0);
+    // No flatten needed — canvas already has opaque black base from fillRect,
+    // photo and frame are drawn opaque on top. JPEG export is safe.
   } else {
     sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
   }
