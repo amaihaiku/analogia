@@ -408,9 +408,12 @@ async function capture(){
   const sx=(vw-side)/2,sy=(vh-side)/2;
 
   const frame=document.getElementById('frame-sel').value;
-  // Polaroid: portrait 4:5 framing with wide bottom
+  // Antik frame: square, same size as photo (frame overlaid on top)
   let cw=OUT,ch=OUT,cx=0,cy=0;
-  if(frame==='polaroid'){
+  if(frame==='antik'){
+    // Square: photo fills inner area, frame overlaid — same canvas size
+    cw=OUT;ch=OUT;cx=0;cy=0;
+  } else if(frame==='polaroid'){
     const pad=Math.round(OUT*.06);
     const bot=Math.round(OUT*.22);
     cw=OUT+pad*2;ch=OUT+pad+bot;cx=pad;cy=pad;
@@ -425,7 +428,7 @@ async function capture(){
 
   if(frame==='polaroid'){sc2.fillStyle='#f2ede4';sc2.fillRect(0,0,cw,ch);}
   else if(frame==='film'){drawFilm(sc2,cw,ch,ch-OUT-Math.round(OUT*.13));}
-  else{sc2.fillStyle='#000';sc2.fillRect(0,0,cw,ch);}
+  else{sc2.fillStyle='#000';sc2.fillRect(0,0,cw,ch);}  // antik and none
 
   const tmp=document.createElement('canvas');tmp.width=OUT;tmp.height=OUT;
   const tc=tmp.getContext('2d',{willReadFrequently:true});
@@ -460,6 +463,14 @@ async function capture(){
     sc2.fillStyle='#e8830a';sc2.fillText(ds,tx,ty);
   }
 
+  // Antik frame: load image and composite
+  if(frame==='antik'){
+    const fimg=await loadImg('antik_keret_web.png');
+    // Frame is 1024x1024, inner transparent area ~256..766 (750x510 → actually ~512x512 square)
+    // Scale frame to match output size
+    sc2.drawImage(fimg,0,0,cw,ch);
+  }
+
   // Polaroid signature
   if(frame==='polaroid'){
     const fs=Math.round(OUT*.028);
@@ -467,34 +478,38 @@ async function capture(){
     sc2.fillText('by Analogia',cx+OUT-Math.round(OUT*.04),ch-Math.round(OUT*.05));
   }
 
-  // Save via Web Share API (native share sheet, no browser bar)
-  // Falls back to <a download> if not supported
+  // Show photo in preview overlay — user saves with long press (iOS) or Web Share
   sv.toBlob(async blob=>{
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
     const fname=`Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.jpg`;
+    const blobUrl=URL.createObjectURL(blob);
 
-    // Try Web Share API with file — opens native iOS/Android share sheet
+    showSaving(false);
+
+    // Show preview image overlay — long press to save on iOS
+    const previewImg=document.getElementById('photo-preview-img');
+    previewImg.src=blobUrl;
+    previewImg.setAttribute('data-filename',fname);
+    document.getElementById('photo-overlay').classList.remove('hidden');
+
+    // Also try Web Share API in parallel (works on Android, some iOS)
     const file=new File([blob],fname,{type:'image/jpeg',lastModified:Date.now()});
     if(navigator.canShare&&navigator.canShare({files:[file]})){
-      try{
-        await navigator.share({files:[file],title:'Analogia'});
-        showSaving(false);S.saving=false;
-        return;
-      }catch(e){
-        // User cancelled share (AbortError) or other error — fall through
-        if(e.name==='AbortError'){showSaving(false);S.saving=false;return;}
-      }
+      try{ await navigator.share({files:[file],title:'Analogia'}); }
+      catch(_){}
     }
 
-    // Fallback: <a download> — works on desktop and unsupported browsers
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;a.download=fname;
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url),4000);
-    showSaving(false);S.saving=false;
+    S.saving=false;
+    // Revoke after 60s (user needs time to save)
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),60000);
   },'image/jpeg',.95);
+}
+
+function loadImg(src){
+  return new Promise((res,rej)=>{
+    const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;
+  });
 }
 
 function drawFilm(c,W,H,sh){
@@ -541,6 +556,20 @@ document.getElementById('shutter').addEventListener('click',capture);
 document.getElementById('film-btn').addEventListener('click',openModal);
 document.getElementById('modal-close').addEventListener('click',closeModal);
 document.getElementById('modal-backdrop').addEventListener('click',closeModal);
+
+// Photo overlay close
+document.getElementById('photo-overlay-close').addEventListener('click',()=>{
+  document.getElementById('photo-overlay').classList.add('hidden');
+  const img=document.getElementById('photo-preview-img');
+  // Desktop fallback: also trigger download on close if no Web Share
+  if(!navigator.canShare){
+    const a=document.createElement('a');
+    a.href=img.src;
+    a.download=img.getAttribute('data-filename')||'Analogia.jpg';
+    a.click();
+  }
+  img.src='';
+});
 
 /* ── Boot ── */
 (async()=>{
