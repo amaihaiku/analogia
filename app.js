@@ -1,242 +1,500 @@
-/* app.js - Webapp logikája javításokkal */
+'use strict';
+/* ═══════════════════════════════════════
+   ANALOGIA — app.js v10 (JAVÍTOTT)
+   Fixes: EV középállás szinkron, Antik .jpg 
+   háttér-átlátszóság sCtx és egyedi antik dátum.
+═══════════════════════════════════════ */
 
-document.addEventListener('DOMContentLoaded', () => {
-    // 1. Általános UI elemek
-    const cameraWrapper = document.getElementById('camera-wrapper');
-    const cameraPreview = document.getElementById('camera-preview');
-    const finalCanvas = document.getElementById('final-canvas');
-    const captureBtn = document.getElementById('capture-btn');
-    const dateBtn = document.getElementById('date-btn');
-    const evBtn = document.getElementById('ev-btn');
-    const filterBtn = document.getElementById('filter-btn');
-    const filtersContainer = document.getElementById('filters-container');
-    const filtersList = document.getElementById('filters-list');
-    const evControls = document.getElementById('ev-controls');
-    const evSlider = document.getElementById('ev-slider');
+const S={
+  stream:null,raf:null,ready:false,saving:false,
+  simKey:'kodachrome',cpuLut:null,
+  ev:0,zoom:1.0,grain:0,grainSize:2,vignette:0,
+  mode:'exposure',
+  vidW:1,vidH:1,
+};
 
-    let isDateActive = false;
-    let currentFilterId = 'normal';
-    let localStream = null;
-    let originalPhotoBlob = null; // A captured photo raw data
-    let frameMaskCanvas = null; // Pre-processed frame with transparent hole
+/* ── Film profiles ── */
+function scv(x,p,c){const t=x-p;return t/Math.sqrt(1+(c*t)*(c*t))+p;}
+function cl(v){return Math.max(0,Math.min(1,v));}
+function bake(fn){
+  const N=33,lut=new Float32Array(N*N*N*3);
+  for(let bi=0;bi<N;bi++)for(let gi=0;gi<N;gi++)for(let ri=0;ri<N;ri++){
+    const[ro,go,bo]=fn(ri/(N-1),gi/(N-1),bi/(N-1));
+    const i=(bi*N*N+gi*N+ri)*3;lut[i]=cl(ro);lut[i+1]=cl(go);lut[i+2]=cl(bo);
+  }
+  return{d:lut,sz:N};
+}
+const PD={
+  kodachrome:{name:'KODACHROME 64',sub:'Rich contrast · Warm reds · Cyan shadows',fn(r,g,b){
+    let rn=scv(r,.55,1.6),gn=scv(g,.5,1.5),bn=scv(b,.48,1.45);
+    const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*2.5);
+    rn+=l*.08;gn-=l*.02;bn+=s*.07-l*.04;gn-=s*.04;
+    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.25,a+(gn-a)*1.1,a+(bn-a)*1.15];}},
+  fuji_superia:{name:'FUJI SUPERIA 400',sub:'Teal shadows · Soft skin · Lifted blacks',fn(r,g,b){
+    let rn=r*.93+.04,gn=g*.93+.04,bn=b*.93+.04;
+    rn=scv(rn,.52,1.3);gn=scv(gn,.52,1.3);bn=scv(bn,.52,1.3);
+    const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*3),h=Math.max(0,l*2-1);
+    gn+=s*.06;bn+=s*.05;rn+=h*.04-s*.03;bn-=h*.03;
+    const a=(rn+gn+bn)/3;return[a+(rn-a)*.9,a+(gn-a)*.92,a+(bn-a)*.88];}},
+  fuji_velvia:{name:'FUJI VELVIA 50',sub:'Ultra saturated · Deep shadows · Vivid',fn(r,g,b){
+    let rn=scv(r,.5,2.2),gn=scv(g,.5,2.0),bn=scv(b,.5,1.9);
+    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.5+.02,a+(gn-a)*1.45,a+(bn-a)*1.4-.02];}},
+  kodak_portra:{name:'KODAK PORTRA 400',sub:'Natural skin · Pastel palette',fn(r,g,b){
+    let rn=scv(r,.48,1.2),gn=scv(g,.5,1.15),bn=scv(b,.52,1.1);
+    const l=.299*rn+.587*gn+.114*bn;rn+=l*.05;gn+=l*.02;bn-=l*.02;
+    const a=(rn+gn+bn)/3;return[a+(rn-a)*.85,a+(gn-a)*.88,a+(bn-a)*.82];}},
+  cinestill:{name:'CINESTILL 800T',sub:'Tungsten · Halation · Cinematic blue',fn(r,g,b){
+    let rn=scv(r*.85,.5,1.4),gn=scv(g*.92,.5,1.3),bn=scv(b+.05,.5,1.25);
+    const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*2.8),h=Math.max(0,l*3-2);
+    return[rn+s*.04+h*.08,gn+s*.02-h*.04,bn+s*.10];}},
+  teal_orange:{name:'TEAL & ORANGE',sub:'Hollywood grade · Skin warmth · Teal shadows',fn(r,g,b){
+    const l=.299*r+.587*g+.114*b,s=Math.max(0,1-l*2.5),h=Math.max(0,l*2-1),m=1-s-h;
+    let rn=r-s*.18+h*.12+m*.04,gn=g+s*.06+h*.04,bn=b+s*.14-h*.16-m*.03;
+    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.3,a+(gn-a)*1.1,a+(bn-a)*1.25];}},
+  bleach:{name:'BLEACH BYPASS',sub:'Silver retention · High contrast · Desaturated',fn(r,g,b){
+    const l=.299*r+.587*g+.114*b,lc=scv(l,.5,2.2),s=Math.max(0,1-l*3);
+    return[r*.4+lc*.6,g*.4+lc*.6+s*.03,b*.4+lc*.6+s*.05];}},
+  agfa:{name:'AGFA VISTA 200',sub:'Warm greens · Vintage fade',fn(r,g,b){
+    let rn=scv(r*.9+.06,.52,1.1),gn=scv(g*.92+.04,.5,1.15),bn=scv(b*.85+.08,.5,1.0);
+    const a=(rn+gn+bn)/3;return[a+(rn-a)*.82,a+(gn-a)*.88,a+(bn-a)*.75];}},
+  cross:{name:'CROSS PROCESS',sub:'High saturation · Shifted hues',fn(r,g,b){
+    let rn=scv(r,.4,2.5),gn=scv(g,.5,2.2),bn=scv(b,.6,2.0);
+    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.8+.04,a+(gn-a)*1.5+.02,a+(bn-a)*1.6-.05];}},
+  acros:{name:'B&W ACROS',sub:'High contrast · Optical channel mix',fn(r,g,b){
+    let l=.35*r+.52*g+.13*b;l=scv(l,.5,2.0);
+    if(l<.5)l*=.92;if(l>.85)l=.85+(l-.85)*.5;return[l,l,l];}},
+  hp5:{name:'ILFORD HP5',sub:'Classic B&W · Wide latitude',fn(r,g,b){
+    const l=scv(.299*r+.587*g+.114*b,.48,1.5);return[l,l,l];}},
+  bw_soft:{name:'B&W SOFT',sub:'Low contrast · Airy · Faded blacks',fn(r,g,b){
+    const l=scv(.22*r+.64*g+.14*b,.5,0.8)*.8+.10;return[l,l,l];}},
+};
+const PROF={};
+for(const[k,d]of Object.entries(PD))PROF[k]={name:d.name,sub:d.sub,lut:bake(d.fn)};
+const XLUTS={};
 
-    // 2. Eszközök és MediaStream inicializálása
-    async function initializeCamera() {
-        try {
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
-            localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            cameraPreview.srcObject = localStream;
-            await cameraPreview.play();
-            resetView(); // Capture button view, etc.
-        } catch (error) {
-            console.error("Camera access failed:", error);
-            alert("Sajnos nem sikerült hozzáférni a kamerához.");
-        }
-    }
+/* ── Cube parser ── */
+function parseCube(txt){
+  const lines=txt.split('\n');let sz=33;const e=[];
+  for(let ln of lines){
+    ln=ln.trim();
+    if(!ln||ln[0]==='#'||ln.startsWith('TITLE'))continue;
+    if(ln.startsWith('LUT_3D_SIZE')){sz=+ln.split(/\s+/)[1];continue;}
+    if(ln.startsWith('DOMAIN_')||ln.startsWith('LUT_'))continue;
+    const p=ln.split(/\s+/).map(Number);
+    if(p.length===3&&!p.some(isNaN))e.push(p[0],p[1],p[2]);
+  }
+  if(e.length!==sz*sz*sz*3)throw new Error(`CUBE: ${e.length}/${sz*sz*sz*3}`);
+  return{d:new Float32Array(e),sz};
+}
 
-    // Bug 2 Javítás: JPG keret belső részének átlátszóvá tétele offscreen canvason
-    async function createFrameMask() {
-        return new Promise((resolve) => {
-            const frameImg = new Image();
-            frameImg.src = 'antik_keret_web.jpg';
-            frameImg.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = frameImg.naturalWidth;
-                canvas.height = frameImg.naturalHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(frameImg, 0, 0);
+/* ── WebGL ── */
+const VS=`attribute vec2 a_pos;varying vec2 v_uv;
+void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.);}`;
 
-                // Color-keying: a sötét belső rész eltávolítása (átlátszóvá tétele)
-                // A JPG nem támogatja az átlátszóságot, ezért ezt dinamikusan kell megoldani.
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imageData.data;
-                const keyColorThreshold = 30; // Threshold a sötét színek kulcsolásához
+const FS=`precision mediump float;
+varying vec2 v_uv;
+uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;
+uniform float u_lut_sz;uniform vec2 u_cvs_sz;uniform vec2 u_vid_sz;
+uniform float u_zoom;uniform float u_ev;uniform float u_vig;
+uniform float u_grain;uniform float u_grain_sz;uniform float u_time;
 
-                for (let i = 0; i < data.length; i += 4) {
-                    const r = data[i];
-                    const g = data[i + 1];
-                    const b = data[i + 2];
+vec2 cropUV(vec2 uv){
+  float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
+  vec2 sc=vec2(1.);
+  if(vAR>cAR)sc.x=cAR/vAR; else sc.y=vAR/cAR;
+  sc/=u_zoom;
+  return(uv-.5)*sc+.5;
+}
+vec3 applyLUT(vec3 c){
+  float sz=u_lut_sz,sm=sz-1.;
+  vec3 s=clamp(c,0.,1.)*sm,lo=floor(s),hi=min(lo+1.,sm),t=s-lo;
+  float W=sz*sz;
+  #define S2(R,G,B) vec2(((B)*sz+(R)+.5)/W,((G)+.5)/sz)
+  vec3 c000=texture2D(u_lut_tex,S2(lo.r,lo.g,lo.b)).rgb,c100=texture2D(u_lut_tex,S2(hi.r,lo.g,lo.b)).rgb;
+  vec3 c010=texture2D(u_lut_tex,S2(lo.r,hi.g,lo.b)).rgb,c110=texture2D(u_lut_tex,S2(hi.r,hi.g,lo.b)).rgb;
+  vec3 c001=texture2D(u_lut_tex,S2(lo.r,lo.g,hi.b)).rgb,c101=texture2D(u_lut_tex,S2(hi.r,lo.g,hi.b)).rgb;
+  vec3 c011=texture2D(u_lut_tex,S2(lo.r,hi.g,hi.b)).rgb,c111=texture2D(u_lut_tex,S2(hi.r,hi.g,hi.b)).rgb;
+  vec3 c00=mix(c000,c100,t.r),c10=mix(c010,c110,t.r),c01=mix(c001,c101,t.r),c11=mix(c011,c111,t.r);
+  return mix(mix(c00,c10,t.g),mix(c01,c11,t.g),t.b);
+}
+float h2(vec2 p){p=fract(p*vec2(234.34,435.34));p+=dot(p,p+34.23);return fract(p.x*p.y);}
+float sn(vec2 u){vec2 i=floor(u),f=fract(u),s=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1,0)),s.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),s.x),s.y);}
+float fbm(vec2 u){return sn(u)*.5+sn(u*2.)*.25+sn(u*4.)*.125;}
+float gc(float l){float t=1.-abs(l-.5)*2.;return t*t*(3.-2.*t);}
 
-                    // Ha a pixel közel van a feketéhez, átlátszóvá tesszük (Alpha = 0)
-                    if (r < keyColorThreshold && g < keyColorThreshold && b < keyColorThreshold) {
-                        data[i + 3] = 0;
-                    }
-                }
-                ctx.putImageData(imageData, 0, 0); // "Lyukas" keret létrehozva
-                frameMaskCanvas = canvas;
-                resolve();
-            };
-        });
-    }
+void main(){
+  vec2 vuv=cropUV(v_uv);
+  if(any(lessThan(vuv,vec2(0.)))||any(greaterThan(vuv,vec2(1.)))){gl_FragColor=vec4(0.,0.,0.,1.);return;}
+  vec3 col=texture2D(u_vid_tex,vuv).rgb;
+  col=clamp(col*u_ev,0.,1.);
+  col=applyLUT(col);
+  if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
+  if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);col=clamp(col+(fbm(nuv)*2.-1.)*u_grain*.2*gc(lum),0.,1.);}
+  gl_FragColor=vec4(col,1.);
+}`;
 
-    // 3. Kép készítése
-    captureBtn.addEventListener('click', async () => {
-        const offscreenCanvas = document.createElement('canvas');
-        offscreenCanvas.width = cameraPreview.videoWidth;
-        offscreenCanvas.height = cameraPreview.videoHeight;
-        const ctx = offscreenCanvas.getContext('2d');
-        ctx.drawImage(cameraPreview, 0, 0);
-        
-        originalPhotoBlob = await new Promise(resolve => offscreenCanvas.toBlob(resolve, 'image/jpeg', 0.9));
-        
-        applyFiltersAndDraw(); // Render current filter
-        showFinalCanvas();
-    });
+const glCv=document.getElementById('gl-canvas');
+let gl,prog,vtex,ltex;
+const U={};
 
-    // Bug 1 Javítás: EV Slider megnyitásakor a középérték beállítása
-    evBtn.addEventListener('click', () => {
-        evControls.classList.toggle('active');
-        filtersContainer.classList.remove('active');
-        if (evControls.classList.contains('active')) {
-            evSlider.value = 0; // Explicitly set slider to center (0) when opened
-            evSlider.dispatchEvent(new Event('input')); // Trigger update (hypothetically)
-        }
-    });
+function initGL(){
+  gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance'});
+  if(!gl)return false;
+  const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,FS);
+  if(!vs||!fs)return false;
+  prog=gl.createProgram();
+  gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(prog));return false;}
+  gl.useProgram(prog);
+  const buf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  const al=gl.getAttribLocation(prog,'a_pos');
+  gl.enableVertexAttribArray(al);gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
+  gl.uniform1i(gl.getUniformLocation(prog,'u_vid_tex'),0);
+  gl.uniform1i(gl.getUniformLocation(prog,'u_lut_tex'),1);
+  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+  vtex=mkT();ltex=mkT();
+  return true;
+}
+function mkS(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
+function mkT(){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);return t;}
 
-    // 4. Szűrők alkalmazása és kompozíció (Antik keret fixszel és dátummal)
-    async function applyFiltersAndDraw() {
-        if (!originalPhotoBlob) return;
+function uploadLUT(ld){
+  const{d,sz}=ld,W=sz*sz,rgba=new Uint8Array(W*sz*4);
+  for(let bi=0;bi<sz;bi++)for(let gi=0;gi<sz;gi++)for(let ri=0;ri<sz;ri++){
+    const li=(bi*sz*sz+gi*sz+ri)*3,ti=(gi*W+bi*sz+ri)*4;
+    rgba[ti]=d[li]*255+.5|0;rgba[ti+1]=d[li+1]*255+.5|0;rgba[ti+2]=d[li+2]*255+.5|0;rgba[ti+3]=255;
+  }
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,ltex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,W,sz,0,gl.RGBA,gl.UNSIGNED_BYTE,rgba);
+  gl.uniform1f(U.u_lut_sz,sz);
+}
 
-        // Create a working canvas to combine photo + filters + frame
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
-        const finalCtx = finalCanvas.getContext('2d');
+const vid=document.getElementById('vid');
+function render(){
+  S.raf=requestAnimationFrame(render);
+  if(!S.ready||vid.readyState<2)return;
+  const p=glCv.parentElement,bw=p.clientWidth|0,bh=p.clientHeight|0;
+  if(glCv.width!==bw||glCv.height!==bh){glCv.width=bw;glCv.height=bh;gl.viewport(0,0,bw,bh);}
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
+  try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
+  gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
+  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.ev));
+  gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
+  gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
 
-        // Load the captured photo onto working canvas
-        const photoImg = new Image();
-        photoImg.src = URL.createObjectURL(originalPhotoBlob);
-        await photoImg.decode();
-        
-        tempCanvas.width = photoImg.width;
-        tempCanvas.height = photoImg.height;
-        tempCtx.drawImage(photoImg, 0, 0);
-        
-        // Apply EV adjustment (simulated, needs actual shader logic for full effect)
-        const evValue = parseFloat(evSlider.value);
-        // Simple visual brightness shift
-        tempCtx.globalCompositeOperation = 'source-over';
-        tempCtx.fillStyle = evValue > 0 ? `rgba(255,255,255,${evValue/5})` : `rgba(0,0,0,${-evValue/5})`;
-        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.globalCompositeOperation = 'source-over'; // Reset
+/* ── Dial (JAVÍTVA: TPX átállítva 14-re a CSS-ben lévő 14px szélességű lépésekhez) ── */
+const MODES={
+  exposure:{min:-2,  max:2,  step:.05,hasCenter:true, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' EV'},
+  zoom:    {min:1.0, max:4.0,step:.05,hasCenter:false,fmt:v=>v.toFixed(1)+'×'},
+  grain:   {min:0,   max:1,  step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
+  vignette:{min:0,   max:1,  step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
+};
+const TPX=14;
+let ddrag=false,dlast=0,doff=0;
 
-        // --- Filter logic ---
-        // FinalCanvas size and aspect ratio should usually match the Frame for 'antik'
-        
-        if (currentFilterId === 'antik') {
-            // Bug 2 & 3 Kompozíció Javítás
-            
-            // 1. Set final canvas size to frame size (assumes portrait or square provided)
-            finalCanvas.width = frameMaskCanvas.width;
-            finalCanvas.height = frameMaskCanvas.height;
-            
-            // 2. Draw photo scaled to cover final canvas (it will show through the hole)
-            finalCtx.globalCompositeOperation = 'source-over';
-            const photoAspect = photoImg.width / photoImg.height;
-            const frameAspect = finalCanvas.width / finalCanvas.height;
-            let sx, sy, sw, sh;
-            if (photoAspect > frameAspect) { // Wide photo, crop sides
-                sh = photoImg.height;
-                sw = sh * frameAspect;
-                sy = 0;
-                sx = (photoImg.width - sw) / 2;
-            } else { // Tall photo, crop top/bottom
-                sw = photoImg.width;
-                sh = sw / frameAspect;
-                sx = 0;
-                sy = (photoImg.height - sh) / 2;
-            }
-            finalCtx.drawImage(photoImg, sx, sy, sw, sh, 0, 0, finalCanvas.width, finalCanvas.height);
+function nT(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
+function getV(){return{exposure:S.ev,zoom:S.zoom,grain:S.grain,vignette:S.vignette}[S.mode];}
+function setV(v){
+  const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
+  if(S.mode==='exposure')S.ev=v;else if(S.mode==='zoom')S.zoom=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
+  return v;
+}
+function o2v(o){const m=MODES[S.mode],N=nT();return m.min+(-o/N/TPX)*(m.max-m.min);}
+function v2o(v){const m=MODES[S.mode],N=nT();return-((v-m.min)/(m.max-m.min))*N*TPX;}
 
-            // 3. Draw pre-processed frame with transparent hole over photo
-            finalCtx.drawImage(frameMaskCanvas, 0, 0);
+function buildDial(){
+  const el=document.getElementById('dial-ticks');if(!el)return;
+  el.innerHTML='';
+  const m=MODES[S.mode],N=nT();
+  const cIdx=m.hasCenter?Math.round((0-m.min)/m.step):-1;
+  for(let i=0;i<=N;i++){
+    const t=document.createElement('div'),maj=i%5===0,isC=(i===cIdx);
+    t.className='dt'+(maj?' maj':'')+(isC?' zero':'');
+    t.style.height=(maj?28:15)+'px';
+    el.appendChild(t);
+  }
+  const cm=document.querySelector('.dial-center-h');
+  if(cm)cm.style.opacity=m.hasCenter?'1':'0';
+}
+function syncDial(){const v=getV(),o=v2o(v);doff=o;const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${o}px)`;updHUD(v);}
+function updHUD(v){const m=MODES[S.mode],f=m.fmt(v);document.getElementById('hud-mode-val').textContent=f;document.getElementById('hud-mode-name').textContent=S.mode.toUpperCase();if(S.mode==='exposure')document.getElementById('hud-ev').textContent=f;}
+function dMove(dx){doff+=dx;const v=setV(o2v(doff));doff=v2o(v);const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${doff}px)`;updHUD(v);}
 
-            // Bug 3 Javítás: Dátum hozzáadása a keretre/fotóra
-            if (isDateActive) {
-                const today = new Date();
-                const dateString = `${today.getFullYear()}. ${String(today.getMonth() + 1).padStart(2, '0')}. ${String(today.getDate()).padStart(2, '0')}.`;
-                
-                // Font stílus: Antik-jellegű serif font. 'serif' generikus serif.
-                finalCtx.font = '70px "Old Standard TT", Garamond, serif'; // Antique font choice
-                finalCtx.fillStyle = '#f5f5dc'; // Drapp (Beige/Tan) color
-                finalCtx.textAlign = 'right';
-                finalCtx.textBaseline = 'bottom';
-                
-                // Pozíció: Jobb alsó rész, a keret belső pereméhez igazítva, de fölötte.
-                // Proporcionális margók a teljes felbontású canvason.
-                const marginX = finalCanvas.width * 0.05; // 5% a széltől
-                const marginY = finalCanvas.height * 0.07; // 7% az aljától, hogy a keret ne takarja
-                finalCtx.fillText(dateString, finalCanvas.width - marginX, finalCanvas.height - marginY);
-            }
+const dialEl=document.getElementById('dial-wrap');
+dialEl.addEventListener('pointerdown',e=>{ddrag=true;dlast=e.clientX;dialEl.setPointerCapture(e.pointerId);},{passive:true});
+dialEl.addEventListener('pointermove',e=>{if(!ddrag)return;dMove(e.clientX-dlast);dlast=e.clientX;},{passive:true});
+dialEl.addEventListener('pointerup',()=>ddrag=false);
+dialEl.addEventListener('pointercancel',()=>ddrag=false);
 
-        } else if (currentFilterId === 'bw') {
-            finalCanvas.width = photoImg.width;
-            finalCanvas.height = photoImg.height;
-            finalCtx.filter = 'grayscale(100%)';
-            finalCtx.drawImage(tempCanvas, 0, 0);
-            finalCtx.filter = 'none'; // Reset
-        } else if (currentFilterId === 'sepia') {
-            finalCanvas.width = photoImg.width;
-            finalCanvas.height = photoImg.height;
-            finalCtx.filter = 'sepia(100%)';
-            finalCtx.drawImage(tempCanvas, 0, 0);
-            finalCtx.filter = 'none'; // Reset
-        } else { // normal
-            finalCanvas.width = photoImg.width;
-            finalCanvas.height = photoImg.height;
-            finalCtx.drawImage(tempCanvas, 0, 0);
-        }
-        
-        URL.revokeObjectURL(photoImg.src); // Cleanup
-    }
-
-    // UI helper functions
-    function resetView() {
-        cameraPreview.style.display = 'block';
-        finalCanvas.style.display = 'none';
-        captureBtn.style.display = 'flex';
-        evControls.classList.remove('active');
-        filtersContainer.classList.remove('active');
-        originalPhotoBlob = null;
-    }
-
-    function showFinalCanvas() {
-        cameraPreview.style.display = 'none';
-        finalCanvas.style.display = 'block';
-        captureBtn.style.display = 'none';
-    }
-
-    // Filter selection logic
-    filterBtn.addEventListener('click', () => {
-        filtersContainer.classList.toggle('active');
-        evControls.classList.remove('active');
-    });
-
-    filtersList.addEventListener('click', (e) => {
-        const item = e.target.closest('.filter-item');
-        if (item) {
-            document.querySelectorAll('.filter-item').forEach(i => i.classList.remove('active'));
-            item.classList.add('active');
-            currentFilterId = item.id.replace('filter-', '');
-            if (originalPhotoBlob) {
-                applyFiltersAndDraw();
-            }
-        }
-    });
-
-    dateBtn.addEventListener('click', () => {
-        isDateActive = !isDateActive;
-        dateBtn.innerHTML = isDateActive ? '<img src="icon-180.png" style="opacity: 1;">' : '<img src="icon-180.png" style="opacity: 0.5;">'; // Vizualis feedback ikonnal
-        if (originalPhotoBlob && currentFilterId === 'antik') {
-            applyFiltersAndDraw(); // Re-render with date
-        }
-    });
-
-    // Start
-    (async () => {
-        await createFrameMask(); // Pre-process JPG frame
-        await initializeCamera();
-    })();
-
+/* ── Tap-to-focus ── */
+document.getElementById('focus-overlay').addEventListener('pointerdown',async e=>{
+  const r=e.currentTarget.getBoundingClientRect(),rx=(e.clientX-r.left)/r.width,ry=(e.clientY-r.top)/r.height;
+  const ring=document.getElementById('focus-ring');
+  ring.style.left=rx*100+'%';ring.style.top=ry*100+'%';ring.classList.remove('hidden');
+  setTimeout(()=>ring.classList.add('hidden'),1300);
+  if(!S.stream)return;
+  const tk=S.stream.getVideoTracks()[0];if(!tk)return;
+  try{await tk.applyConstraints({advanced:[{focusMode:'manual',pointsOfInterest:[{x:rx,y:ry}]}]});}
+  catch(_){try{await tk.applyConstraints({advanced:[{focusMode:'continuous'}]});}catch(__){}}
+  document.getElementById('hud-focus-label').textContent='MF';
+  setTimeout(()=>document.getElementById('hud-focus-label').textContent='AF',2000);
 });
+
+/* ── Landscape warning ── */
+function chkOrientation(){document.getElementById('rotate-overlay').classList.toggle('hidden',!window.matchMedia('(orientation:landscape)').matches);}
+window.addEventListener('resize',chkOrientation);
+window.matchMedia('(orientation:landscape)').addEventListener('change',chkOrientation);
+chkOrientation();
+
+/* ── Film modal ── */
+async function tryLoadLuts(){
+  try{
+    const r=await fetch('luts/index.json');if(!r.ok)return;
+    for(const e of((await r.json()).luts||[])){
+      try{const r2=await fetch(`luts/${e.file}`);if(!r2.ok)continue;const lut=parseCube(await r2.text());XLUTS[e.file]={d:lut.d,sz:lut.sz,name:e.name||e.file,sub:e.sub||'Custom LUT'};}catch(_){}
+    }
+  }catch(_){}
+}
+function buildFilmList(){
+  const list=document.getElementById('film-list');list.innerHTML='';
+  for(const[k,p]of Object.entries(PROF)){
+    const it=document.createElement('div');it.className='film-item'+(S.simKey===k&&!S.cpuLut?' active':'');
+    it.innerHTML=`<div class="film-dot"></div><div><div class="film-name">${p.name}</div><div class="film-sub">${p.sub}</div></div>`;
+    it.onclick=()=>{S.simKey=k;S.cpuLut=null;uploadLUT(p.lut);document.getElementById('film-label').textContent=p.name;closeModal();};
+    list.appendChild(it);
+  }
+  for(const[fn,lut]of Object.entries(XLUTS)){
+    const it=document.createElement('div');it.className='film-item';
+    it.innerHTML=`<div class="film-dot"></div><div><div class="film-name">${lut.name}</div><div class="film-sub">${lut.sub}</div></div>`;
+    it.onclick=()=>{S.simKey='__lut__';S.cpuLut=lut;uploadLUT(lut);document.getElementById('film-label').textContent=lut.name;closeModal();};
+    list.appendChild(it);
+  }
+}
+function openModal(){buildFilmList();document.getElementById('film-modal').classList.remove('hidden');}
+function closeModal(){document.getElementById('film-modal').classList.add('hidden');}
+document.getElementById('film-btn').addEventListener('click',openModal);
+document.getElementById('modal-close').addEventListener('click',closeModal);
+document.getElementById('modal-backdrop').addEventListener('click',closeModal);
+document.getElementById('lut-upload').addEventListener('change',async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{const lut=parseCube(await f.text());const name=f.name.replace('.cube','').replace(/_/g,' ').toUpperCase();XLUTS[f.name]={d:lut.d,sz:lut.sz,name,sub:'Egyéni LUT · .cube'};S.simKey='__lut__';S.cpuLut=XLUTS[f.name];uploadLUT(lut);document.getElementById('film-label').textContent=name;closeModal();}
+  catch(err){alert('LUT hiba: '+err.message);}e.target.value='';
+});
+
+/* ─────────────────────────────────────
+   CAPTURE (JAVÍTVA: Antik JPG transzparencia chroma-key-el és egyedi antik dátumozás)
+───────────────────────────────────── */
+function c255(v){return Math.max(0,Math.min(255,v+.5|0));}
+
+function cpuLUT(r,g,b,ld){
+  const{d,sz}=ld,sc2=sz-1;
+  const rf=Math.min(r/255,1)*sc2,gf=Math.min(g/255,1)*sc2,bf=Math.min(b/255,1)*sc2;
+  const r0=rf|0,r1=Math.min(r0+1,sc2),g0=gf|0,g1=Math.min(g0+1,sc2),b0=bf|0,b1=Math.min(b0+1,sc2);
+  const dr=rf-r0,dg=gf-g0,db=bf-b0;
+  const idx=(a,c,dd)=>(dd*sz*sz+c*sz+a)*3;
+  return[0,1,2].map(ch=>{
+    const v000=d[idx(r0,g0,b0)+ch],v100=d[idx(r1,g0,b0)+ch],v010=d[idx(r0,g1,b0)+ch],v110=d[idx(r1,g1,b0)+ch];
+    const v001=d[idx(r0,g0,b1)+ch],v101=d[idx(r1,g0,b1)+ch],v011=d[idx(r0,g1,b1)+ch],v111=d[idx(r1,g1,b1)+ch];
+    const c00=v000+(v100-v000)*dr,c10=v010+(v110-v010)*dr,c01=v001+(v101-v001)*dr,c11=v011+(v111-v011)*dr;
+    return(c00+(c10-c00)*dg+(c01+(c11-c01)*dg-c00-(c10-c00)*dg)*db)*255;
+  });
+}
+
+function showSaving(on){document.getElementById('saving-overlay').classList.toggle('hidden',!on);}
+function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
+
+async function capture(){
+  if(S.saving||!S.ready)return;
+  S.saving=true;showSaving(true);
+  await new Promise(r=>setTimeout(r,20));
+
+  const vw=vid.videoWidth,vh=vid.videoHeight;
+  const OUT=1080;
+
+  const side=Math.min(vw,vh)/S.zoom;
+  const sx=(vw-side)/2,sy=(vh-side)/2;
+
+  const frame=document.getElementById('frame-sel').value;
+  let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
+
+  if(frame==='antik'){
+    photoS=OUT; photoX=0; photoY=0; cw=OUT; ch=OUT;
+  } else if(frame==='polaroid'){
+    const pad=Math.round(OUT*.06),bot=Math.round(OUT*.22);
+    cw=OUT+pad*2;ch=OUT+pad+bot;photoX=pad;photoY=pad;photoS=OUT;
+  } else if(frame==='film'){
+    const sh=Math.round(OUT*.13);ch=OUT+sh*2;photoX=0;photoY=sh;photoS=OUT;
+  }
+
+  const sv=document.getElementById('save-canvas');
+  sv.width=cw;sv.height=ch;
+  const sCtx=sv.getContext('2d');
+
+  if(frame==='polaroid'){sCtx.fillStyle='#f2ede4';}
+  else{sCtx.fillStyle='#000';}
+  sCtx.fillRect(0,0,cw,ch);
+  if(frame==='film')drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
+
+  const tmp=document.createElement('canvas');tmp.width=photoS;tmp.height=photoS;
+  const tc=tmp.getContext('2d',{willReadFrequently:true});
+  tc.drawImage(vid,sx,sy,side,side,0,0,photoS,photoS);
+
+  const id=tc.getImageData(0,0,photoS,photoS),pd=id.data;
+  const evm=Math.pow(2,S.ev),va=S.vignette;
+  const ld=S.simKey==='__lut__'&&S.cpuLut?S.cpuLut:PROF[S.simKey]?.lut;
+  for(let i=0;i<pd.length;i+=4){
+    let r=pd[i]*evm,g=pd[i+1]*evm,b=pd[i+2]*evm;
+    if(r>255)r=255;if(g>255)g=255;if(b>255)b=255;
+    if(ld){const rgb=cpuLUT(r,g,b,ld);r=rgb[0];g=rgb[1];b=rgb[2];}
+    if(va>0){
+      const pi=i>>2,x=pi%photoS,y=pi/photoS|0;
+      const dx=(x/photoS-.5)*2,dy=(y/photoS-.5)*2;
+      const vig=Math.max(0,(dx*dx+dy*dy-.3)/1.7);
+      if(vig>0){const vm=1-va*Math.min(1,vig)*.88;r*=vm;g*=vm;b*=vm;}
+    }
+    pd[i]=c255(r);pd[i+1]=c255(g);pd[i+2]=c255(b);
+  }
+  tc.putImageData(id,0,0);
+
+  if(frame==='antik'){
+    // Layer 1: A fotó kirajzolása a teljes vászonra
+    sCtx.drawImage(tmp,0,0,OUT,OUT);
+    
+    // Layer 2: JPG keret betöltése és a fekete belső rész dinamikus átlátszóvá tétele (Chroma-keying)
+    try{
+      const fimg=await loadImg('antik_keret_web.jpg');
+      const fCanvas=document.createElement('canvas');
+      fCanvas.width=OUT; fCanvas.height=OUT;
+      const fCtx=fCanvas.getContext('2d');
+      fCtx.drawImage(fimg,0,0,OUT,OUT);
+      
+      const fData=fCtx.getImageData(0,0,OUT,OUT),pixels=fData.data;
+      for(let i=0;i<pixels.length;i+=4){
+        // Ha a pixel tiszta fekete vagy nagyon sötét (belső maszk rész), átlátszóvá tesszük az alphát
+        if(pixels[i]<35 && pixels[i+1]<35 && pixels[i+2]<35){
+          pixels[i+3]=0;
+        }
+      }
+      fCtx.putImageData(fData,0,0);
+      // Rátesszük a már átlátszó közepű antik keretet a fotó tetejére
+      sCtx.drawImage(fCanvas,0,0);
+    }catch(e){console.warn('Antik frame failed',e);}
+  } else {
+    sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
+  }
+
+  // Date stamp (JAVÍTVA: Antik mód esetén külön elegáns antik betűstílus, drapp szín és biztonságos pozíció)
+  if(document.getElementById('date-tog').checked){
+    const now=new Date(),p=n=>String(n).padStart(2,'0');
+    const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
+    const fs=Math.max(14,photoS*.036|0);
+    
+    if(frame==='antik'){
+      sCtx.font=`italic bold ${fs}px Georgia, serif`;
+      sCtx.textAlign='right';
+      // 12%-ot beljebb hozzuk a szélektől, hogy tökéletesen a fotón üljön, és a keret ne takarja el
+      const tx=OUT-Math.round(OUT*.12);
+      const ty=OUT-Math.round(OUT*.12);
+      sCtx.fillStyle='rgba(0,0,0,.3)'; sCtx.fillText(ds,tx+1,ty+1); // finom árnyék a láthatóságért
+      sCtx.fillStyle='#dfd5be'; // Drapp / antik bézs szín
+      sCtx.fillText(ds,tx,ty);
+    } else {
+      sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
+      const tx=photoX+photoS-fs*.4,ty=photoY+photoS-fs*.5;
+      sCtx.fillStyle='rgba(0,0,0,.4)';sCtx.fillText(ds,tx+2,ty+2);
+      sCtx.fillStyle='#e8830a';
+      sCtx.fillText(ds,tx,ty);
+    }
+  }
+
+  // Polaroid signature
+  if(frame==='polaroid'){
+    const fs=Math.round(OUT*.026);
+    sCtx.font=`${fs}px Courier New`;sCtx.textAlign='right';sCtx.fillStyle='#5a5040';
+    sCtx.fillText('by Analogia',photoX+photoS-Math.round(OUT*.02),ch-Math.round((ch-photoY-photoS)/2+fs*.3));
+  }
+
+  // Show preview
+  sv.toBlob(blob=>{
+    const now=new Date(),p=n=>String(n).padStart(2,'0');
+    const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
+    const fname=`Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.jpg`;
+    const url=URL.createObjectURL(blob);
+    showSaving(false);
+    const pi=document.getElementById('photo-preview-img');
+    pi.src=url;pi.setAttribute('data-filename',fname);
+    document.getElementById('photo-overlay').classList.remove('hidden');
+    S.saving=false;
+    setTimeout(()=>URL.revokeObjectURL(url),120000);
+  },'image/jpeg',.92);
+}
+
+function drawFilm(c,W,H,sh){
+  c.fillStyle='#111008';c.fillRect(0,0,W,H);
+  [0,H-sh].forEach(sy=>{
+    c.fillStyle='#1e1c17';c.fillRect(0,sy,W,sh);
+    const hw=sh*.5|0,hh=sh*.55|0,sp=hw*2.2,hy=sy+(sh-hh)/2;
+    c.fillStyle='#0a0904';let x=sp*.25;
+    while(x<W-hw){c.beginPath();if(c.roundRect)c.roundRect(x,hy,hw,hh,3);else c.rect(x,hy,hw,hh);c.fill();x+=sp;}
+  });
+}
+
+/* ── Camera ── */
+async function initCam(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1920}},audio:false});
+    S.stream=stream;vid.srcObject=stream;
+    vid.addEventListener('loadedmetadata',()=>{
+      S.ready=true;
+      const tk=stream.getVideoTracks()[0],st=tk.getSettings();
+      S.vidW=st.width||vid.videoWidth;S.vidH=st.height||vid.videoHeight;
+      vid.play().catch(()=>{});
+      document.getElementById('hud-res').textContent=S.vidW+'×'+S.vidH;
+      document.getElementById('noperm').style.display='none';
+      tk.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
+      render();
+    },{once:true});
+  }catch(e){
+    document.getElementById('perm-err').textContent=e.name==='NotAllowedError'?'Engedély megtagadva.':e.name==='NotFoundError'?'Nincs kamera.':'Kamera hiba.';
+  }
+}
+
+/* ── Events ── */
+document.getElementById('perm-btn').addEventListener('click',initCam);
+document.getElementById('shutter').addEventListener('click',capture);
+
+document.querySelectorAll('.mode-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');S.mode=btn.dataset.mode;buildDial();syncDial();
+  });
+});
+
+document.getElementById('photo-overlay-close').addEventListener('click',()=>{
+  document.getElementById('photo-overlay').classList.add('hidden');
+  document.getElementById('photo-preview-img').src='';
+});
+
+document.getElementById('photo-save-btn').addEventListener('click',()=>{
+  const img=document.getElementById('photo-preview-img');
+  if(!img.src)return;
+  const a=document.createElement('a');
+  a.href=img.src;a.download=img.getAttribute('data-filename')||'Analogia.jpg';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>{\n    document.getElementById('photo-overlay').classList.add('hidden');
+    img.src='';
+  },400);
+});
+
+/* ── Boot ── */
+(async()=>{
+  if(!initGL()){document.getElementById('perm-err').textContent='WebGL nem elérhető.';return;}
+  buildDial();syncDial();uploadLUT(PROF['kodachrome'].lut);
+  await tryLoadLuts();
+  if(navigator.mediaDevices?.getUserMedia)initCam();
+  else document.getElementById('perm-err').textContent='Kamera API nem támogatott.';
+})();
