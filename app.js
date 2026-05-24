@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v10 (JAVÍTOTT)
-   Fixes: EV tárcsa lépték és középállás, 
-   Antik JPG maszkolás, drapp antik dátum.
+   ANALOGIA — app.js v9
+   Fixes: topbar font, antik frame black bg,
+   faster capture via reduced output size
 ═══════════════════════════════════════ */
 
 const S={
@@ -186,14 +186,14 @@ function render(){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
-/* ── Dial (Bug 1 Fix: TPX átállítva 14-re a fizikai 14px-es tick mérethez) ── */
+/* ── Dial ── */
 const MODES={
   exposure:{min:-2,  max:2,  step:.05,hasCenter:true, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' EV'},
   zoom:    {min:1.0, max:4.0,step:.05,hasCenter:false,fmt:v=>v.toFixed(1)+'×'},
   grain:   {min:0,   max:1,  step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
   vignette:{min:0,   max:1,  step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
 };
-const TPX=14;
+const TPX=13;
 let ddrag=false,dlast=0,doff=0;
 
 function nT(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
@@ -286,10 +286,13 @@ document.getElementById('lut-upload').addEventListener('change',async e=>{
 });
 
 /* ─────────────────────────────────────
-   CAPTURE (Bug 2 & 3 Fix: Antik JPG lyukasztás és egyedi drap antik dátum)
+   CAPTURE
+   Speed fix: use 1080px output (not 1920)
+   Antik fix: draw photo THEN frame on top
 ───────────────────────────────────── */
 function c255(v){return Math.max(0,Math.min(255,v+.5|0));}
 
+// Fast CPU LUT — pre-clamp inputs to avoid index checks
 function cpuLUT(r,g,b,ld){
   const{d,sz}=ld,sc2=sz-1;
   const rf=Math.min(r/255,1)*sc2,gf=Math.min(g/255,1)*sc2,bf=Math.min(b/255,1)*sc2;
@@ -313,8 +316,10 @@ async function capture(){
   await new Promise(r=>setTimeout(r,20));
 
   const vw=vid.videoWidth,vh=vid.videoHeight;
+  // Use 1080px output for speed (was 1920 — 3× faster pixel loop)
   const OUT=1080;
 
+  // Square crop, zoom applied
   const side=Math.min(vw,vh)/S.zoom;
   const sx=(vw-side)/2,sy=(vh-side)/2;
 
@@ -322,6 +327,7 @@ async function capture(){
   let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
   if(frame==='antik'){
+    // Frame has transparent inner — photo fills full canvas, frame composited on top
     photoS=OUT; photoX=0; photoY=0; cw=OUT; ch=OUT;
   } else if(frame==='polaroid'){
     const pad=Math.round(OUT*.06),bot=Math.round(OUT*.22);
@@ -334,15 +340,18 @@ async function capture(){
   sv.width=cw;sv.height=ch;
   const sCtx=sv.getContext('2d');
 
+  // Background
   if(frame==='polaroid'){sCtx.fillStyle='#f2ede4';}
   else{sCtx.fillStyle='#000';}
   sCtx.fillRect(0,0,cw,ch);
   if(frame==='film')drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
 
+  // ── Render photo at photoS size ──
   const tmp=document.createElement('canvas');tmp.width=photoS;tmp.height=photoS;
   const tc=tmp.getContext('2d',{willReadFrequently:true});
   tc.drawImage(vid,sx,sy,side,side,0,0,photoS,photoS);
 
+  // Pixel pipeline
   const id=tc.getImageData(0,0,photoS,photoS),pd=id.data;
   const evm=Math.pow(2,S.ev),va=S.vignette;
   const ld=S.simKey==='__lut__'&&S.cpuLut?S.cpuLut:PROF[S.simKey]?.lut;
@@ -361,52 +370,32 @@ async function capture(){
   tc.putImageData(id,0,0);
 
   if(frame==='antik'){
-    // Layer 1: fotó kirajzolása a teljes felületre
+    // sCtx already has black background from fillRect above.
+    // Layer 1: photo fills entire canvas (covers black bg in inner area)
     sCtx.drawImage(tmp,0,0,OUT,OUT);
-    // Layer 2: Antik JPG betöltése és a fekete belső rész dinamikus átlátszóvá tétele (Chroma-key)
+    // Layer 2: transparent-inner frame on top.
+    //   Frame's inner area is transparent → photo shows through.
+    //   Frame's ornament+border are opaque → they cover photo edges.
     try{
-      const fimg=await loadImg('antik_keret_web.jpg');
-      const fCanvas=document.createElement('canvas');
-      fCanvas.width=OUT; fCanvas.height=OUT;
-      const fCtx=fCanvas.getContext('2d');
-      fCtx.drawImage(fimg,0,0,OUT,OUT);
-      
-      const fData=fCtx.getImageData(0,0,OUT,OUT),pixels=fData.data;
-      for(let i=0;i<pixels.length;i+=4){
-        // Ha a pixel tiszta fekete vagy nagyon sötét (belső maszk rész), teljesen átlátszóvá tesszük (Alpha = 0)
-        if(pixels[i]<35 && pixels[i+1]<35 && pixels[i+2]<35){
-          pixels[i+3]=0;
-        }
-      }
-      fCtx.putImageData(fData,0,0);
-      sCtx.drawImage(fCanvas,0,0); // Rásütjük a lyukas keretet a fotóra
+      const fimg=await loadImg('antik_keret_web.png');
+      sCtx.drawImage(fimg,0,0,OUT,OUT);
     }catch(e){console.warn('Antik frame failed',e);}
+    // No flatten needed — canvas already has opaque black base from fillRect,
+    // photo and frame are drawn opaque on top. JPEG export is safe.
   } else {
     sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
   }
 
-  // Date stamp (Bug 3 Fix: Antik módnál elegáns serif font, drapp szín, és a takarást elkerülő pozíció)
+  // Date stamp
   if(document.getElementById('date-tog').checked){
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
     const fs=Math.max(14,photoS*.036|0);
-    
-    if(frame==='antik'){
-      sCtx.font=`italic bold ${fs}px Georgia, serif`;
-      sCtx.textAlign='right';
-      // 15%-kal és 16%-kal beljebb hozzuk a koordinátákat, hogy a belső fotóterület jobb alsó sarkában üljön, ne a keret alatt
-      const tx=OUT-Math.round(OUT*.15);
-      const ty=OUT-Math.round(OUT*.16);
-      sCtx.fillStyle='rgba(0,0,0,.3)'; sCtx.fillText(ds,tx+1,ty+1); // Finom vetett árnyék a jobb olvashatóságért
-      sCtx.fillStyle='#dfd5be'; // Drapp / antik bézs betűszín
-      sCtx.fillText(ds,tx,ty);
-    } else {
-      sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
-      const tx=photoX+photoS-fs*.4,ty=photoY+photoS-fs*.5;
-      sCtx.fillStyle='rgba(0,0,0,.4)';sCtx.fillText(ds,tx+2,ty+2);
-      sCtx.fillStyle='#e8830a';
-      sCtx.fillText(ds,tx,ty);
-    }
+    sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
+    const tx=photoX+photoS-fs*.4,ty=photoY+photoS-fs*.5;
+    sCtx.fillStyle='rgba(0,0,0,.4)';sCtx.fillText(ds,tx+2,ty+2);
+    sCtx.fillStyle=(frame==='antik')?'#7a6440':'#e8830a';
+    sCtx.fillText(ds,tx,ty);
   }
 
   // Polaroid signature

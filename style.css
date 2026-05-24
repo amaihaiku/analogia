@@ -60,16 +60,18 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
   height:68px;
   gap:10px;
 }
+/* All three children: same fixed height box, content vertically centered */
 .brand-wrap{
-  display:flex;align-items:center;
+  display:flex;align-items:center;  /* center the ANALOGIA text vertically */
   height:44px;flex-shrink:0;
   position:relative;
 }
 .brand{
   font-family:var(--display);font-size:30px;letter-spacing:.18em;
-  color:var(--gold);line-height:44px;
+  color:var(--gold);line-height:44px;  /* match box height so glyph centers */
   display:block;
 }
+/* RF-1 model tag: absolute, doesn't affect brand baseline */
 .model{
   position:absolute;bottom:-2px;left:2px;
   font-size:8px;letter-spacing:.3em;color:var(--dim);line-height:1;
@@ -77,7 +79,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .film-btn{
   display:flex;align-items:center;justify-content:center;
   flex:1;min-width:0;gap:7px;
-  height:44px;
+  height:44px;  /* same height as brand box */
   background:rgba(200,168,75,.08);border:1.5px solid var(--gold-dim);
   padding:0 12px;cursor:pointer;transition:background .1s;border-radius:3px;
 }
@@ -94,6 +96,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .vf-wrap{flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px 12px}
 .vf-bezel{
   position:relative;
+  /* 1:1 square, width = 100% of vf-wrap content */
   width:100%;
   aspect-ratio:1/1;
   background:#000;border:2px solid var(--dim);overflow:hidden;
@@ -129,11 +132,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .led{width:6px;height:6px;border-radius:50%;background:var(--dim);flex-shrink:0;transition:background .15s,box-shadow .15s}
 .mode-btn.active .led{background:var(--gold);box-shadow:0 0 6px var(--gold)}
 
-/* DIAL (Középérték igazítása a skála eltolásával) */
+/* DIAL */
 .dial-h{position:relative;height:58px;overflow:hidden;border-bottom:1px solid var(--edge);background:var(--bg);touch-action:none;cursor:grab;flex-shrink:0}
 .dial-h:active{cursor:grabbing}
 .dial-track-h{position:absolute;inset:0;display:flex;align-items:center}
-.dial-ticks-h{display:flex;align-items:center;will-change:transform;flex-shrink:0;padding:0 calc(50vw - 7px)}
+.dial-ticks-h{display:flex;align-items:center;will-change:transform;flex-shrink:0;padding:0 50vw}
 .dt{flex-shrink:0;width:2px;margin:0 6px;background:var(--dim);border-radius:1px}
 .dt.maj{background:var(--muted)}
 .dt.zero{background:var(--gold);width:3px}
