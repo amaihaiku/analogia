@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
    ANALOGIA — app.js v10 (JAVÍTOTT)
-   Fixes: EV középállás szinkron, Antik .jpg 
-   háttér-átlátszóság sCtx és egyedi antik dátum.
+   Fixes: EV tárcsa lépték és középállás, 
+   Antik JPG maszkolás, drapp antik dátum.
 ═══════════════════════════════════════ */
 
 const S={
@@ -186,7 +186,7 @@ function render(){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
-/* ── Dial (JAVÍTVA: TPX átállítva 14-re a CSS-ben lévő 14px szélességű lépésekhez) ── */
+/* ── Dial (Bug 1 Fix: TPX átállítva 14-re a fizikai 14px-es tick mérethez) ── */
 const MODES={
   exposure:{min:-2,  max:2,  step:.05,hasCenter:true, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' EV'},
   zoom:    {min:1.0, max:4.0,step:.05,hasCenter:false,fmt:v=>v.toFixed(1)+'×'},
@@ -286,7 +286,7 @@ document.getElementById('lut-upload').addEventListener('change',async e=>{
 });
 
 /* ─────────────────────────────────────
-   CAPTURE (JAVÍTVA: Antik JPG transzparencia chroma-key-el és egyedi antik dátumozás)
+   CAPTURE (Bug 2 & 3 Fix: Antik JPG lyukasztás és egyedi drap antik dátum)
 ───────────────────────────────────── */
 function c255(v){return Math.max(0,Math.min(255,v+.5|0));}
 
@@ -361,10 +361,9 @@ async function capture(){
   tc.putImageData(id,0,0);
 
   if(frame==='antik'){
-    // Layer 1: A fotó kirajzolása a teljes vászonra
+    // Layer 1: fotó kirajzolása a teljes felületre
     sCtx.drawImage(tmp,0,0,OUT,OUT);
-    
-    // Layer 2: JPG keret betöltése és a fekete belső rész dinamikus átlátszóvá tétele (Chroma-keying)
+    // Layer 2: Antik JPG betöltése és a fekete belső rész dinamikus átlátszóvá tétele (Chroma-key)
     try{
       const fimg=await loadImg('antik_keret_web.jpg');
       const fCanvas=document.createElement('canvas');
@@ -374,20 +373,19 @@ async function capture(){
       
       const fData=fCtx.getImageData(0,0,OUT,OUT),pixels=fData.data;
       for(let i=0;i<pixels.length;i+=4){
-        // Ha a pixel tiszta fekete vagy nagyon sötét (belső maszk rész), átlátszóvá tesszük az alphát
+        // Ha a pixel tiszta fekete vagy nagyon sötét (belső maszk rész), teljesen átlátszóvá tesszük (Alpha = 0)
         if(pixels[i]<35 && pixels[i+1]<35 && pixels[i+2]<35){
           pixels[i+3]=0;
         }
       }
       fCtx.putImageData(fData,0,0);
-      // Rátesszük a már átlátszó közepű antik keretet a fotó tetejére
-      sCtx.drawImage(fCanvas,0,0);
+      sCtx.drawImage(fCanvas,0,0); // Rásütjük a lyukas keretet a fotóra
     }catch(e){console.warn('Antik frame failed',e);}
   } else {
     sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
   }
 
-  // Date stamp (JAVÍTVA: Antik mód esetén külön elegáns antik betűstílus, drapp szín és biztonságos pozíció)
+  // Date stamp (Bug 3 Fix: Antik módnál elegáns serif font, drapp szín, és a takarást elkerülő pozíció)
   if(document.getElementById('date-tog').checked){
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -396,11 +394,11 @@ async function capture(){
     if(frame==='antik'){
       sCtx.font=`italic bold ${fs}px Georgia, serif`;
       sCtx.textAlign='right';
-      // 12%-ot beljebb hozzuk a szélektől, hogy tökéletesen a fotón üljön, és a keret ne takarja el
-      const tx=OUT-Math.round(OUT*.12);
-      const ty=OUT-Math.round(OUT*.12);
-      sCtx.fillStyle='rgba(0,0,0,.3)'; sCtx.fillText(ds,tx+1,ty+1); // finom árnyék a láthatóságért
-      sCtx.fillStyle='#dfd5be'; // Drapp / antik bézs szín
+      // 15%-kal és 16%-kal beljebb hozzuk a koordinátákat, hogy a belső fotóterület jobb alsó sarkában üljön, ne a keret alatt
+      const tx=OUT-Math.round(OUT*.15);
+      const ty=OUT-Math.round(OUT*.16);
+      sCtx.fillStyle='rgba(0,0,0,.3)'; sCtx.fillText(ds,tx+1,ty+1); // Finom vetett árnyék a jobb olvashatóságért
+      sCtx.fillStyle='#dfd5be'; // Drapp / antik bézs betűszín
       sCtx.fillText(ds,tx,ty);
     } else {
       sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
@@ -485,7 +483,8 @@ document.getElementById('photo-save-btn').addEventListener('click',()=>{
   const a=document.createElement('a');
   a.href=img.src;a.download=img.getAttribute('data-filename')||'Analogia.jpg';
   document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(()=>{\n    document.getElementById('photo-overlay').classList.add('hidden');
+  setTimeout(()=>{
+    document.getElementById('photo-overlay').classList.add('hidden');
     img.src='';
   },400);
 });

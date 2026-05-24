@@ -29,8 +29,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .modal.hidden{display:none}
 .modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.78);backdrop-filter:blur(8px)}
 .modal-box{position:relative;z-index:1;width:100%;max-width:540px;background:var(--metal2);border:1px solid var(--dim);border-bottom:none;border-radius:14px 14px 0 0;padding:20px 16px;max-height:72vh;overflow-y:auto}
-.modal-box::-webkit-scrollbar{width:4px}
-.modal-box::-webkit-scrollbar-thumb{background:var(--dim);border-radius:2px}
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .modal-title{font-family:var(--display);font-size:22px;letter-spacing:.2em;color:var(--gold)}
 .modal-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px}
@@ -131,7 +129,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .led{width:6px;height:6px;border-radius:50%;background:var(--dim);flex-shrink:0;transition:background .15s,box-shadow .15s}
 .mode-btn.active .led{background:var(--gold);box-shadow:0 0 6px var(--gold)}
 
-/* DIAL (JAVÍTVA: A tökéletes középálláshoz igazított padding érték) */
+/* DIAL (Középérték igazítása a skála eltolásával) */
 .dial-h{position:relative;height:58px;overflow:hidden;border-bottom:1px solid var(--edge);background:var(--bg);touch-action:none;cursor:grab;flex-shrink:0}
 .dial-h:active{cursor:grabbing}
 .dial-track-h{position:absolute;inset:0;display:flex;align-items:center}
