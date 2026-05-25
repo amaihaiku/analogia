@@ -434,6 +434,7 @@ async function capture(){
     pi.onload=()=>{S.lastPhotoUrl=url;};
     pi.src=url;pi.setAttribute('data-filename',fname);
     document.getElementById('photo-overlay').classList.remove('hidden');
+    initPhotoZoom();
     S.saving=false;
   },'image/jpeg',.92);
 }
@@ -468,6 +469,103 @@ async function initCam(){
   }
 }
 
+/* ── Photo overlay pinch-zoom (Pointer Events API) ── */
+let _pzState = null; // { scale, tx, ty, pointers, initDist, initScale, initTx, initTy, initMx, initMy }
+
+function _pzGetDist(a, b) {
+  const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+function _pzGetMid(a, b) {
+  return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+}
+function _pzApply(img) {
+  const { scale, tx, ty } = _pzState;
+  img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+}
+
+function _pzOnDown(e) {
+  const img = document.getElementById('photo-preview-img');
+  _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+  img.setPointerCapture(e.pointerId);
+
+  if (_pzState.pointers.size === 2) {
+    // Pinch start
+    const pts = [..._pzState.pointers.values()];
+    _pzState.initDist = _pzGetDist(pts[0], pts[1]);
+    _pzState.initScale = _pzState.scale;
+    _pzState.initTx = _pzState.tx;
+    _pzState.initTy = _pzState.ty;
+    const mid = _pzGetMid(pts[0], pts[1]);
+    _pzState.initMx = mid.x;
+    _pzState.initMy = mid.y;
+  } else if (_pzState.pointers.size === 1) {
+    // Drag start
+    _pzState.initTx = _pzState.tx;
+    _pzState.initTy = _pzState.ty;
+    _pzState.initMx = e.clientX;
+    _pzState.initMy = e.clientY;
+  }
+}
+function _pzOnMove(e) {
+  if (!_pzState) return;
+  _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+  const img = document.getElementById('photo-preview-img');
+
+  if (_pzState.pointers.size === 2) {
+    const pts = [..._pzState.pointers.values()];
+    const dist = _pzGetDist(pts[0], pts[1]);
+    let newScale = _pzState.initScale * (dist / _pzState.initDist);
+    newScale = Math.max(1.0, Math.min(4.0, newScale));
+    _pzState.scale = newScale;
+
+    // Translate so the pinch midpoint stays fixed
+    const mid = _pzGetMid(pts[0], pts[1]);
+    _pzState.tx = _pzState.initTx + (mid.x - _pzState.initMx);
+    _pzState.ty = _pzState.initTy + (mid.y - _pzState.initMy);
+    _pzApply(img);
+  } else if (_pzState.pointers.size === 1 && _pzState.scale > 1.0) {
+    _pzState.tx = _pzState.initTx + (e.clientX - _pzState.initMx);
+    _pzState.ty = _pzState.initTy + (e.clientY - _pzState.initMy);
+    _pzApply(img);
+  }
+}
+function _pzOnUp(e) {
+  if (!_pzState) return;
+  _pzState.pointers.delete(e.pointerId);
+  // Ha marad 1 pointer, frissítjük a drag kiindulópontját
+  if (_pzState.pointers.size === 1) {
+    const [rem] = _pzState.pointers.values();
+    _pzState.initTx = _pzState.tx;
+    _pzState.initTy = _pzState.ty;
+    _pzState.initMx = rem.clientX;
+    _pzState.initMy = rem.clientY;
+  }
+}
+
+function initPhotoZoom() {
+  const img = document.getElementById('photo-preview-img');
+  _pzState = { scale: 1, tx: 0, ty: 0, pointers: new Map(), initDist: 0, initScale: 1, initTx: 0, initTy: 0, initMx: 0, initMy: 0 };
+  img.style.touchAction = 'none';
+  img.style.transform = 'translate(0px,0px) scale(1)';
+  img.addEventListener('pointerdown', _pzOnDown);
+  img.addEventListener('pointermove', _pzOnMove);
+  img.addEventListener('pointerup', _pzOnUp);
+  img.addEventListener('pointercancel', _pzOnUp);
+}
+function cleanupPhotoZoom() {
+  const img = document.getElementById('photo-preview-img');
+  if (_pzState) {
+    img.removeEventListener('pointerdown', _pzOnDown);
+    img.removeEventListener('pointermove', _pzOnMove);
+    img.removeEventListener('pointerup', _pzOnUp);
+    img.removeEventListener('pointercancel', _pzOnUp);
+    _pzState = null;
+  }
+  img.style.touchAction = 'auto';
+  img.style.transform = 'translate(0px,0px) scale(1)';
+}
+
 /* ── Events ── */
 document.getElementById('perm-btn').addEventListener('click',initCam);
 document.getElementById('shutter').addEventListener('click',capture);
@@ -479,7 +577,16 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
   });
 });
 
+document.getElementById('photo-overlay-bg').addEventListener('click',()=>{
+  cleanupPhotoZoom();
+  document.getElementById('photo-overlay').classList.add('hidden');
+  const img=document.getElementById('photo-preview-img');
+  img.src='';
+  if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
+});
+
 document.getElementById('photo-overlay-close').addEventListener('click',()=>{
+  cleanupPhotoZoom();
   document.getElementById('photo-overlay').classList.add('hidden');
   document.getElementById('photo-preview-img').src='';
   if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
@@ -492,11 +599,19 @@ document.getElementById('photo-save-btn').addEventListener('click',()=>{
   a.href=img.src;a.download=img.getAttribute('data-filename')||'Analogia.jpg';
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(()=>{
+    cleanupPhotoZoom();
     document.getElementById('photo-overlay').classList.add('hidden');
     img.src='';
     if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
   },400);
 });
+
+/* ── Oldal-szintű pinch zoom teljes letiltása ── */
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('touchmove', e => {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
 
 /* ── Boot ── */
 (async()=>{
