@@ -139,7 +139,7 @@ let gl,prog,vtex,ltex;
 const U={};
 
 function initGL(){
-  gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance'});
+  gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:true});
   if(!gl)return false;
   const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,FS);
   if(!vs||!fs)return false;
@@ -352,6 +352,17 @@ async function capture(){
   if(frame==='film')drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
 
   // ── Read GPU-processed (grain+LUT) frame directly from WebGL canvas ──
+  // Force one render draw to ensure buffer is populated (preserveDrawingBuffer:true)
+  if(S.ready&&vid.readyState>=2){
+    const p=glCv.parentElement,bw=glCv.width,bh=glCv.height;
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
+    try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
+    gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
+    gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.ev));
+    gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
+    gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  }
   const glW=glCv.width,glH=glCv.height;
   const pixels=new Uint8Array(glW*glH*4);
   gl.readPixels(0,0,glW,glH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
