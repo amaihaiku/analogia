@@ -232,18 +232,97 @@ dialEl.addEventListener('pointerup',()=>ddrag=false);
 dialEl.addEventListener('pointercancel',()=>ddrag=false);
 
 /* ── Tap-to-focus ── */
-document.getElementById('focus-overlay').addEventListener('pointerdown',async e=>{
-  const r=e.currentTarget.getBoundingClientRect(),rx=(e.clientX-r.left)/r.width,ry=(e.clientY-r.top)/r.height;
-  const ring=document.getElementById('focus-ring');
-  ring.style.left=rx*100+'%';ring.style.top=ry*100+'%';ring.classList.remove('hidden');
-  setTimeout(()=>ring.classList.add('hidden'),1300);
-  if(!S.stream)return;
-  const tk=S.stream.getVideoTracks()[0];if(!tk)return;
-  try{await tk.applyConstraints({advanced:[{focusMode:'manual',pointsOfInterest:[{x:rx,y:ry}]}]});}
-  catch(_){try{await tk.applyConstraints({advanced:[{focusMode:'continuous'}]});}catch(__){}}
-  document.getElementById('hud-focus-label').textContent='MF';
-  setTimeout(()=>document.getElementById('hud-focus-label').textContent='AF',2000);
+/* ── Élőkép interakciók (Tap-to-focus & Pinch-to-zoom) ── */
+const vfOverlay = document.getElementById('focus-overlay');
+let vfPointers = new Map();
+let vfInitDist = 0;
+let vfInitZoom = 1.0;
+let isPinching = false;
+
+vfOverlay.addEventListener('pointerdown', e => {
+  try { vfOverlay.setPointerCapture(e.pointerId); } catch (_) {}
+  vfPointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+  // Ha két ujj van a kijelzőn, elindítjuk a zoom folyamatot
+  if (vfPointers.size === 2) {
+    isPinching = true;
+    const pts = [...vfPointers.values()];
+    vfInitDist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+    vfInitZoom = S.zoom;
+  }
 });
+
+vfOverlay.addEventListener('pointermove', e => {
+  if (!vfPointers.has(e.pointerId)) return;
+  vfPointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+  if (isPinching && vfPointers.size === 2) {
+    const pts = [...vfPointers.values()];
+    const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+    
+    if (vfInitDist > 0) {
+      const factor = dist / vfInitDist;
+      let nz = vfInitZoom * factor;
+      
+      // Határok betartása a MODES.zoom alapján (1.0× - 4.0×)
+      nz = Math.max(1.0, Math.min(4.0, nz));
+      
+      // Finom kerekítés a dial lépésközére (0.05) a rángatózás elkerülésére
+      S.zoom = Math.round(nz / 0.05) * 0.05;
+
+      // UX fegyvertény: Ha nem ZOOM módban vagyunk, átváltunk rá, 
+      // így az alsó mechanikus tárcsa és a LED-ek is animálnak a csípéssel együtt!
+      if (S.mode !== 'zoom') {
+        S.mode = 'zoom';
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        const zBtn = document.querySelector('.mode-btn[data-mode="zoom"]');
+        if (zBtn) zBtn.classList.add('active');
+        buildDial();
+      }
+      syncDial();
+    }
+  }
+});
+
+function handleVfPointerUp(e) {
+  try { vfOverlay.releasePointerCapture(e.pointerId); } catch (_) {}
+  
+  // FÓKUSZ TRIGGER: Csak akkor aktiválódik, ha egyujjas koppintás történt (nem pinch-eltünk)
+  if (vfPointers.has(e.pointerId) && vfPointers.size === 1 && !isPinching) {
+    triggerVfFocus(e);
+  }
+  
+  vfPointers.delete(e.pointerId);
+  if (vfPointers.size === 0) {
+    isPinching = false; // Teljes reset, ha minden ujjat felemelt a felhasználó
+  }
+}
+
+vfOverlay.addEventListener('pointerup', handleVfPointerUp);
+vfOverlay.addEventListener('pointercancel', handleVfPointerUp);
+
+async function triggerVfFocus(e) {
+  const r = vfOverlay.getBoundingClientRect();
+  const rx = (e.clientX - r.left) / r.width;
+  const ry = (e.clientY - r.top) / r.height;
+  
+  const ring = document.getElementById('focus-ring');
+  ring.style.left = rx * 100 + '%';
+  ring.style.top = ry * 100 + '%';
+  ring.classList.remove('hidden');
+  setTimeout(() => ring.classList.add('hidden'), 1300);
+  
+  if (!S.stream) return;
+  const tk = S.stream.getVideoTracks()[0];
+  if (!tk) return;
+  try {
+    await tk.applyConstraints({ advanced: [{ focusMode: 'manual', pointsOfInterest: [{ x: rx, y: ry }] }] });
+  } catch (_) {
+    try { await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (__) {}
+  }
+  document.getElementById('hud-focus-label').textContent = 'MF';
+  setTimeout(() => document.getElementById('hud-focus-label').textContent = 'AF', 2000);
+}
 
 /* ── Landscape warning ── */
 function chkOrientation(){document.getElementById('rotate-overlay').classList.toggle('hidden',!window.matchMedia('(orientation:landscape)').matches);}
