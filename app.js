@@ -303,24 +303,58 @@ vfOverlay.addEventListener('pointercancel', handleVfPointerUp);
 
 async function triggerVfFocus(e) {
   const r = vfOverlay.getBoundingClientRect();
+  // Viewfinder relatív koordináták (0.0 - 1.0) a kijelzőn
   const rx = (e.clientX - r.left) / r.width;
   const ry = (e.clientY - r.top) / r.height;
-  
+
+  // Sárga fókuszgyűrű felvillantása a pontos érintési helyen
   const ring = document.getElementById('focus-ring');
   ring.style.left = rx * 100 + '%';
   ring.style.top = ry * 100 + '%';
   ring.classList.remove('hidden');
   setTimeout(() => ring.classList.add('hidden'), 1300);
-  
+
   if (!S.stream) return;
   const tk = S.stream.getVideoTracks()[0];
   if (!tk) return;
+
+  // 1. PONTOSSÁG JAVÍTÁSA: Matematikai transzformáció a 1:1 vágásból a valós kamera streamre
+  const vAR = S.vidW / S.vidH;
+  let videoX = 0.5 + (rx - 0.5) / S.zoom;
+  let videoY = 0.5 + (ry - 0.5) / S.zoom;
+
+  if (vAR > 1) {
+    // Landscape stream (pl. 1920x1080) - a két széle van levágva a kijelzőn
+    videoX = 0.5 + (rx - 0.5) / (vAR * S.zoom);
+  } else if (vAR < 1) {
+    // Portrait stream (pl. 1080x1920) - a teteje/alja van levágva a kijelzőn
+    videoY = 0.5 + (ry - 0.5) * (vAR / S.zoom);
+  }
+
+  // Biztonsági korlátok (0.0 és 1.0 között kell maradnia)
+  videoX = Math.max(0, Math.min(1, videoX));
+  videoY = Math.max(0, Math.min(1, videoY));
+
+  document.getElementById('hud-focus-label').textContent = 'MF';
+
   try {
-    await tk.applyConstraints({ advanced: [{ focusMode: 'manual', pointsOfInterest: [{ x: rx, y: ry }] }] });
+    // 2. ELUGRÁS JAVÍTÁSA: Kétlépcsős fókusz-resetting.
+    // Először alaphelyzetbe hozzuk a tiszta folyamatos fókuszt pontok nélkül, hogy feloldjuk a korábbi zárat...
+    await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    
+    // ...majd azonnal ráküldjük az új, precíz koordinátát, szintén 'continuous' módban.
+    // Így a telefon megérti, hogy oda kell húznia a fókuszt, de nem akad ki a motor a második bökésnél sem.
+    await tk.applyConstraints({
+      advanced: [{
+        focusMode: 'continuous',
+        pointsOfInterest: [{ x: videoX, y: videoY }]
+      }]
+    });
   } catch (_) {
+    // Biztonsági fallback, ha az adott mobilböngésző/OS nem támogatná a specifikus zónafókuszt
     try { await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (__) {}
   }
-  document.getElementById('hud-focus-label').textContent = 'MF';
+
   setTimeout(() => document.getElementById('hud-focus-label').textContent = 'AF', 2000);
 }
 
