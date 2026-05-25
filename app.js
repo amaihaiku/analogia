@@ -501,18 +501,17 @@ async function capture(){
     flipped.set(pixels.subarray(src,src+glW*4),dst);
   }
   // Crop the square region (matching shader cropUV) from the GL canvas
-  const cAR=glW/glH,vAR=S.vidW/S.vidH;
-  let scx=1,scy=1;
-  if(vAR>cAR)scx=cAR/vAR;else scy=vAR/cAR;
-  scx/=S.zoom;scy/=S.zoom;
-  const cropX=Math.round(((1-scx)/2)*glW),cropY=Math.round(((1-scy)/2)*glH);
-  const cropW=Math.round(scx*glW),cropH=Math.round(scy*glH);
-  const tmp=document.createElement('canvas');tmp.width=photoS;tmp.height=photoS;
-  const tc=tmp.getContext('2d',{willReadFrequently:true});
-  const srcCanvas=document.createElement('canvas');srcCanvas.width=glW;srcCanvas.height=glH;
-  const srcCtx=srcCanvas.getContext('2d');
-  srcCtx.putImageData(new ImageData(new Uint8ClampedArray(flipped),glW,glH),0,0);
-  tc.drawImage(srcCanvas,cropX,cropY,cropW,cropH,0,0,photoS,photoS);
+// Mivel a WebGL shader a GPU-n már tökéletesen elvégezte a vágást és a zoomot,
+  // a kinyert nagyfelbontású textúrát 1:1-ben, torzítás és dupla zoom nélkül mentjük el.
+  const tmp = document.createElement('canvas'); tmp.width = photoS; tmp.height = photoS;
+  const tc = tmp.getContext('2d', { willReadFrequently: true });
+  const srcCanvas = document.createElement('canvas'); srcCanvas.width = glW; srcCanvas.height = glH;
+  const srcCtx = srcCanvas.getContext('2d');
+  
+  srcCtx.putImageData(new ImageData(new Uint8ClampedArray(flipped), glW, glH), 0, 0);
+  
+  // A teljes WebGL négyzetet (0,0-tól glW,glH-ig) átmásoljuk a mentési méretre (photoS)
+  tc.drawImage(srcCanvas, 0, 0, glW, glH, 0, 0, photoS, photoS);
 
   if(frame==='antik'){
     // sCtx already has black background from fillRect above.
