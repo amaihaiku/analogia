@@ -1,8 +1,9 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v9
+   ANALOGIA — app.js v10 (Film Profile Update)
    Fixes: topbar font, antik frame black bg,
-   faster capture via reduced output size
+   faster capture via reduced output size.
+   Updated: 10 precise film emulation profiles.
 ═══════════════════════════════════════ */
 
 const S={
@@ -26,50 +27,77 @@ function bake(fn){
   }
   return{d:lut,sz:N};
 }
+
 const PD={
   kodachrome:{name:'KODACHROME 64',sub:'Rich contrast · Warm reds · Cyan shadows',fn(r,g,b){
     let rn=scv(r,.55,1.6),gn=scv(g,.5,1.5),bn=scv(b,.48,1.45);
     const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*2.5);
     rn+=l*.08;gn-=l*.02;bn+=s*.07-l*.04;gn-=s*.04;
     const a=(rn+gn+bn)/3;return[a+(rn-a)*1.25,a+(gn-a)*1.1,a+(bn-a)*1.15];}},
-  fuji_superia:{name:'FUJI SUPERIA 400',sub:'Teal shadows · Soft skin · Lifted blacks',fn(r,g,b){
-    let rn=r*.93+.04,gn=g*.93+.04,bn=b*.93+.04;
-    rn=scv(rn,.52,1.3);gn=scv(gn,.52,1.3);bn=scv(bn,.52,1.3);
-    const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*3),h=Math.max(0,l*2-1);
-    gn+=s*.06;bn+=s*.05;rn+=h*.04-s*.03;bn-=h*.03;
-    const a=(rn+gn+bn)/3;return[a+(rn-a)*.9,a+(gn-a)*.92,a+(bn-a)*.88];}},
-  fuji_velvia:{name:'FUJI VELVIA 50',sub:'Ultra saturated · Deep shadows · Vivid',fn(r,g,b){
-    let rn=scv(r,.5,2.2),gn=scv(g,.5,2.0),bn=scv(b,.5,1.9);
-    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.5+.02,a+(gn-a)*1.45,a+(bn-a)*1.4-.02];}},
+    
   kodak_portra:{name:'KODAK PORTRA 400',sub:'Natural skin · Pastel palette',fn(r,g,b){
     let rn=scv(r,.48,1.2),gn=scv(g,.5,1.15),bn=scv(b,.52,1.1);
     const l=.299*rn+.587*gn+.114*bn;rn+=l*.05;gn+=l*.02;bn-=l*.02;
     const a=(rn+gn+bn)/3;return[a+(rn-a)*.85,a+(gn-a)*.88,a+(bn-a)*.82];}},
+    
+  fuji_velvia:{name:'FUJI VELVIA 50',sub:'Ultra saturated · Deep shadows · Vivid',fn(r,g,b){
+    let rn=scv(r,.5,2.2),gn=scv(g,.5,2.0),bn=scv(b,.5,1.9);
+    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.5+.02,a+(gn-a)*1.45,a+(bn-a)*1.4-.02];}},
+    
   cinestill:{name:'CINESTILL 800T',sub:'Tungsten · Halation · Cinematic blue',fn(r,g,b){
     let rn=scv(r*.85,.5,1.4),gn=scv(g*.92,.5,1.3),bn=scv(b+.05,.5,1.25);
-    const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*2.8),h=Math.max(0,l*3-2);
-    return[rn+s*.04+h*.08,gn+s*.02-h*.04,bn+s*.10];}},
+    const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*2.8),h_orig=Math.max(0,l*3-2);
+    let rout=rn+s*.04+h_orig*.08, gout=gn+s*.02-h_orig*.04, bout=bn+s*.10;
+    // Halation & Bloom szimuláció a highlight területeken (l > 0.85)
+    if(l>0.85){
+      const t=Math.max(0,Math.min(1,(l-0.85)/0.15));
+      const h=t*t*(3-2*t); // simított átmenet (smoothstep)
+      rout+=0.15*h;
+      bout-=0.04*h;
+    }
+    rout+=Math.max(0,l-0.85)*1.2;
+    bout-=Math.max(0,l-0.85)*0.4;
+    return[rout,gout,bout];}},
+    
   teal_orange:{name:'TEAL & ORANGE',sub:'Hollywood grade · Skin warmth · Teal shadows',fn(r,g,b){
     const l=.299*r+.587*g+.114*b,s=Math.max(0,1-l*2.5),h=Math.max(0,l*2-1),m=1-s-h;
     let rn=r-s*.18+h*.12+m*.04,gn=g+s*.06+h*.04,bn=b+s*.14-h*.16-m*.03;
     const a=(rn+gn+bn)/3;return[a+(rn-a)*1.3,a+(gn-a)*1.1,a+(bn-a)*1.25];}},
+    
   bleach:{name:'BLEACH BYPASS',sub:'Silver retention · High contrast · Desaturated',fn(r,g,b){
     const l=.299*r+.587*g+.114*b,lc=scv(l,.5,2.2),s=Math.max(0,1-l*3);
     return[r*.4+lc*.6,g*.4+lc*.6+s*.03,b*.4+lc*.6+s*.05];}},
-  agfa:{name:'AGFA VISTA 200',sub:'Warm greens · Vintage fade',fn(r,g,b){
-    let rn=scv(r*.9+.06,.52,1.1),gn=scv(g*.92+.04,.5,1.15),bn=scv(b*.85+.08,.5,1.0);
-    const a=(rn+gn+bn)/3;return[a+(rn-a)*.82,a+(gn-a)*.88,a+(bn-a)*.75];}},
+    
   cross:{name:'CROSS PROCESS',sub:'High saturation · Shifted hues',fn(r,g,b){
     let rn=scv(r,.4,2.5),gn=scv(g,.5,2.2),bn=scv(b,.6,2.0);
     const a=(rn+gn+bn)/3;return[a+(rn-a)*1.8+.04,a+(gn-a)*1.5+.02,a+(bn-a)*1.6-.05];}},
-  acros:{name:'B&W ACROS',sub:'High contrast · Optical channel mix',fn(r,g,b){
-    let l=.35*r+.52*g+.13*b;l=scv(l,.5,2.0);
-    if(l<.5)l*=.92;if(l>.85)l=.85+(l-.85)*.5;return[l,l,l];}},
-  hp5:{name:'ILFORD HP5',sub:'Classic B&W · Wide latitude',fn(r,g,b){
-    const l=scv(.299*r+.587*g+.114*b,.48,1.5);return[l,l,l];}},
-  bw_soft:{name:'B&W SOFT',sub:'Low contrast · Airy · Faded blacks',fn(r,g,b){
-    const l=scv(.22*r+.64*g+.14*b,.5,0.8)*.8+.10;return[l,l,l];}},
+    
+  highcontrast_bw:{name:'HIGH CONTRAST',sub:'Crushed blacks · Clean whites · Graphic',fn(r,g,b){
+    let l=0.25*r+0.65*g+0.10*b; // Optikai csatorna mix
+    l=scv(l,0.42,3.5);            // Erős S-görbe
+    if(l<0.25)l*=0.6;             // Shadow crush
+    if(l>0.75)l=0.75+(l-0.75)*1.3; // Highlight expansion
+    return[l,l,l];}},
+    
+  l_monochrome:{name:'L-MONOCHROME',sub:'Leica rendering · Rich midtones · Airy',fn(r,g,b){
+    let l=0.30*r+0.59*g+0.11*b; // Standard monokróm mix
+    l=scv(l,0.50,1.1);            // Finom tónusgörbe
+    const t=1-Math.abs(l-0.5)*2;l+=t*0.04; // Középtónus kiemelés
+    if(l<0.3)l=l*0.88+0.035;      // Enyhe shadow lift
+    if(l>0.88)l=0.88+(l-0.88)*0.4; // Highlight rolloff
+    return[l,l,l];}},
+    
+  infrared:{name:'INFRARED',sub:'Green becomes white · Sky darkens · Dramatic',fn(r,g,b){
+    let l=0.05*r+0.88*g+0.07*b; // Erősen zöld-domináns hamis infravörös mix
+    l=scv(l,0.45,2.2);            // Drámai kontraszt
+    l-=b*0.08;                    // Kék ég elnyomása
+    l=Math.max(0,Math.min(1,l));  // Biztonsági tónus-clamp
+    let rout=l+Math.max(0,l-0.7)*0.12;
+    let gout=l+Math.max(0,l-0.7)*0.04;
+    let bout=l-Math.max(0,l-0.7)*0.08; // Finom meleg csúcsfény tónus
+    return[rout,gout,bout];}}
 };
+
 const PROF={};
 for(const[k,d]of Object.entries(PD))PROF[k]={name:d.name,sub:d.sub,lut:bake(d.fn)};
 const XLUTS={};
@@ -131,14 +159,11 @@ void main(){
   vec3 col=texture2D(u_vid_tex,vuv).rgb;
   col=clamp(col*u_ev,0.,1.);
   col=applyLUT(col);
-  // Shadows lift
   float lum=dot(col,vec3(0.299,0.587,0.114));
   float shadowMask=1.0-smoothstep(0.0,0.5,lum);
   col+=u_shadows*shadowMask*0.4;
-  // Highlights rolloff
   float highlightMask=smoothstep(0.5,1.0,lum);
   col-=u_highlights*highlightMask*0.35;
-  // Tone (color temperature): kék-sárga tengely
   col.r+=u_tone*0.12;
   col.g+=u_tone*0.04;
   col.b-=u_tone*0.15;
@@ -191,22 +216,15 @@ const vid=document.getElementById('vid');
 function render(){
   S.raf=requestAnimationFrame(render);
   if(!S.ready||vid.readyState<2)return;
-  
   const p=glCv.parentElement;
-  
-  // Megnézzük a kijelző valós pixelsűrűségét (Retina/AMOLED szorzó, pl: 2x vagy 3x)
   const dpr = window.devicePixelRatio || 1;
-  
-  // A fizikai pixelmérethez igazítjuk a belső felbontást a tűéles képért
   const bw = Math.round(p.clientWidth * dpr);
   const bh = Math.round(p.clientHeight * dpr);
-  
   if(glCv.width!==bw||glCv.height!==bh){
     glCv.width=bw;
     glCv.height=bh;
     gl.viewport(0,0,bw,bh);
   }
-  
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
   gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
@@ -266,8 +284,7 @@ dialEl.addEventListener('pointermove',e=>{if(!ddrag)return;dMove(e.clientX-dlast
 dialEl.addEventListener('pointerup',()=>ddrag=false);
 dialEl.addEventListener('pointercancel',()=>ddrag=false);
 
-/* ── Tap-to-focus ── */
-/* ── Élőkép interakciók (Tap-to-focus & Pinch-to-zoom) ── */
+/* ── Tap-to-focus & Pinch-to-zoom ── */
 const vfOverlay = document.getElementById('focus-overlay');
 let vfPointers = new Map();
 let vfInitDist = 0;
@@ -277,8 +294,6 @@ let isPinching = false;
 vfOverlay.addEventListener('pointerdown', e => {
   try { vfOverlay.setPointerCapture(e.pointerId); } catch (_) {}
   vfPointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
-
-  // Ha két ujj van a kijelzőn, elindítjuk a zoom folyamatot
   if (vfPointers.size === 2) {
     isPinching = true;
     const pts = [...vfPointers.values()];
@@ -290,19 +305,13 @@ vfOverlay.addEventListener('pointerdown', e => {
 vfOverlay.addEventListener('pointermove', e => {
   if (!vfPointers.has(e.pointerId)) return;
   vfPointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
-
   if (isPinching && vfPointers.size === 2) {
     const pts = [...vfPointers.values()];
     const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
-    
     if (vfInitDist > 0) {
       const factor = dist / vfInitDist;
       let nz = vfInitZoom * factor;
-      
-      // Határok betartása a MODES.zoom alapján (1.0× - 4.0×)
       nz = Math.max(1.0, Math.min(4.0, nz));
-      
-      // Finom kerekítés a dial lépésközére (0.05) a rángatózás elkerülésére
       S.zoom = Math.round(nz / 0.05) * 0.05;
       syncDial();
     }
@@ -311,28 +320,21 @@ vfOverlay.addEventListener('pointermove', e => {
 
 function handleVfPointerUp(e) {
   try { vfOverlay.releasePointerCapture(e.pointerId); } catch (_) {}
-  
-  // FÓKUSZ TRIGGER: Csak akkor aktiválódik, ha egyujjas koppintás történt (nem pinch-eltünk)
   if (vfPointers.has(e.pointerId) && vfPointers.size === 1 && !isPinching) {
     triggerVfFocus(e);
   }
-  
   vfPointers.delete(e.pointerId);
   if (vfPointers.size === 0) {
-    isPinching = false; // Teljes reset, ha minden ujjat felemelt a felhasználó
+    isPinching = false;
   }
 }
-
 vfOverlay.addEventListener('pointerup', handleVfPointerUp);
 vfOverlay.addEventListener('pointercancel', handleVfPointerUp);
 
 async function triggerVfFocus(e) {
   const r = vfOverlay.getBoundingClientRect();
-  // Viewfinder relatív koordináták (0.0 - 1.0) a kijelzőn
   const rx = (e.clientX - r.left) / r.width;
   const ry = (e.clientY - r.top) / r.height;
-
-  // Sárga fókuszgyűrű felvillantása a pontos érintési helyen
   const ring = document.getElementById('focus-ring');
   ring.style.left = rx * 100 + '%';
   ring.style.top = ry * 100 + '%';
@@ -343,32 +345,20 @@ async function triggerVfFocus(e) {
   const tk = S.stream.getVideoTracks()[0];
   if (!tk) return;
 
-  // 1. PONTOSSÁG JAVÍTÁSA: Matematikai transzformáció a 1:1 vágásból a valós kamera streamre
   const vAR = S.vidW / S.vidH;
   let videoX = 0.5 + (rx - 0.5) / S.zoom;
   let videoY = 0.5 + (ry - 0.5) / S.zoom;
-
   if (vAR > 1) {
-    // Landscape stream (pl. 1920x1080) - a két széle van levágva a kijelzőn
     videoX = 0.5 + (rx - 0.5) / (vAR * S.zoom);
   } else if (vAR < 1) {
-    // Portrait stream (pl. 1080x1920) - a teteje/alja van levágva a kijelzőn
     videoY = 0.5 + (ry - 0.5) * (vAR / S.zoom);
   }
-
-  // Biztonsági korlátok (0.0 és 1.0 között kell maradnia)
   videoX = Math.max(0, Math.min(1, videoX));
   videoY = Math.max(0, Math.min(1, videoY));
 
   document.getElementById('hud-focus-label').textContent = 'MF';
-
   try {
-    // 2. ELUGRÁS JAVÍTÁSA: Kétlépcsős fókusz-resetting.
-    // Először alaphelyzetbe hozzuk a tiszta folyamatos fókuszt pontok nélkül, hogy feloldjuk a korábbi zárat...
     await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-    
-    // ...majd azonnal ráküldjük az új, precíz koordinátát, szintén 'continuous' módban.
-    // Így a telefon megérti, hogy oda kell húznia a fókuszt, de nem akad ki a motor a második bökésnél sem.
     await tk.applyConstraints({
       advanced: [{
         focusMode: 'continuous',
@@ -376,10 +366,8 @@ async function triggerVfFocus(e) {
       }]
     });
   } catch (_) {
-    // Biztonsági fallback, ha az adott mobilböngésző/OS nem támogatná a specifikus zónafókuszt
     try { await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (__) {}
   }
-
   setTimeout(() => document.getElementById('hud-focus-label').textContent = 'AF', 2000);
 }
 
@@ -433,14 +421,8 @@ document.getElementById('lut-upload').addEventListener('change',async e=>{
   catch(err){alert('LUT hiba: '+err.message);}e.target.value='';
 });
 
-/* ─────────────────────────────────────
-   CAPTURE
-   Speed fix: use 1080px output (not 1920)
-   Antik fix: draw photo THEN frame on top
-───────────────────────────────────── */
+/* ── CAPTURE ── */
 function c255(v){return Math.max(0,Math.min(255,v+.5|0));}
-
-// Fast CPU LUT — pre-clamp inputs to avoid index checks
 function cpuLUT(r,g,b,ld){
   const{d,sz}=ld,sc2=sz-1;
   const rf=Math.min(r/255,1)*sc2,gf=Math.min(g/255,1)*sc2,bf=Math.min(b/255,1)*sc2;
@@ -463,14 +445,11 @@ async function capture(){
   S.saving=true;showSaving(true);
   await new Promise(r=>setTimeout(r,20));
 
-  // Use 1080px output for speed
   const OUT=1080;
-
   const frame=document.getElementById('frame-sel').value;
   let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
   if(frame==='antik'){
-    // Frame has transparent inner — photo fills full canvas, frame composited on top
     photoS=OUT; photoX=0; photoY=0; cw=OUT; ch=OUT;
   } else if(frame==='polaroid'){
     const pad=Math.round(OUT*.06),bot=Math.round(OUT*.22);
@@ -483,14 +462,10 @@ async function capture(){
   sv.width=cw;sv.height=ch;
   const sCtx=sv.getContext('2d');
 
-  // Background
-  if(frame==='polaroid'){sCtx.fillStyle='#f2ede4';}
-  else{sCtx.fillStyle='#000';}
+  if(frame==='polaroid'){sCtx.fillStyle='#f2ede4';} else {sCtx.fillStyle='#000';}
   sCtx.fillRect(0,0,cw,ch);
   if(frame==='film')drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
 
-  // ── Read GPU-processed (grain+LUT) frame directly from WebGL canvas ──
-  // Force one render draw to ensure buffer is populated (preserveDrawingBuffer:true)
   if(S.ready&&vid.readyState>=2){
     const p=glCv.parentElement,bw=glCv.width,bh=glCv.height;
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
@@ -505,38 +480,26 @@ async function capture(){
   const glW=glCv.width,glH=glCv.height;
   const pixels=new Uint8Array(glW*glH*4);
   gl.readPixels(0,0,glW,glH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
-  // WebGL Y-axis is flipped — mirror vertically before use
+  
   const flipped=new Uint8Array(glW*glH*4);
   for(let row=0;row<glH;row++){
     const src=(glH-1-row)*glW*4,dst=row*glW*4;
     flipped.set(pixels.subarray(src,src+glW*4),dst);
   }
-  // Crop the square region (matching shader cropUV) from the GL canvas
-// Mivel a WebGL shader a GPU-n már tökéletesen elvégezte a vágást és a zoomot,
-  // a kinyert nagyfelbontású textúrát 1:1-ben, torzítás és dupla zoom nélkül mentjük el.
+
   const tmp = document.createElement('canvas'); tmp.width = photoS; tmp.height = photoS;
   const tc = tmp.getContext('2d', { willReadFrequently: true });
   const srcCanvas = document.createElement('canvas'); srcCanvas.width = glW; srcCanvas.height = glH;
   const srcCtx = srcCanvas.getContext('2d');
-  
   srcCtx.putImageData(new ImageData(new Uint8ClampedArray(flipped), glW, glH), 0, 0);
-  
-  // A teljes WebGL négyzetet (0,0-tól glW,glH-ig) átmásoljuk a mentési méretre (photoS)
   tc.drawImage(srcCanvas, 0, 0, glW, glH, 0, 0, photoS, photoS);
 
   if(frame==='antik'){
-    // sCtx already has black background from fillRect above.
-    // Layer 1: photo fills entire canvas (covers black bg in inner area)
     sCtx.drawImage(tmp,0,0,OUT,OUT);
-    // Layer 2: transparent-inner frame on top.
-    //   Frame's inner area is transparent → photo shows through.
-    //   Frame's ornament+border are opaque → they cover photo edges.
     try{
       const fimg=await loadImg('antik_keret_web.png');
       sCtx.drawImage(fimg,0,0,OUT,OUT);
     }catch(e){console.warn('Antik frame failed',e);}
-    // No flatten needed — canvas already has opaque black base from fillRect,
-    // photo and frame are drawn opaque on top. JPEG export is safe.
   } else {
     sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
   }
@@ -560,7 +523,6 @@ async function capture(){
     sCtx.fillText('by Analogia',photoX+photoS-Math.round(OUT*.02),ch-Math.round((ch-photoY-photoS)/2+fs*.3));
   }
 
-  // Show preview
   sv.toBlob(blob=>{
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
@@ -572,9 +534,7 @@ async function capture(){
     pi.onload=()=>{S.lastPhotoUrl=url;};
     pi.src=url;pi.setAttribute('data-filename',fname);
     document.getElementById('photo-overlay').classList.remove('hidden');
-    // ... korábbi kódod változatlan az overlay megnyitásánál
-    document.getElementById('photo-overlay').classList.remove('hidden');
-    lockOverlayZoom(); // <-- Itt aktiváljuk a teljes zárat az előnézetre
+    lockOverlayZoom();
     S.saving=false;
   },'image/jpeg',.92);
 }
@@ -609,21 +569,14 @@ async function initCam(){
   }
 }
 
-/* ── Mentési ablak zoom teljes tiltása ── */
-function _pzPreventNative(e) {
-  e.preventDefault();
-}
-
+function _pzPreventNative(e) { e.preventDefault(); }
 function lockOverlayZoom() {
   const overlay = document.getElementById('photo-overlay');
   overlay.style.touchAction = 'none';
-  
-  // Minden kétujjas és csúsztatási kísérletet azonnal megfojtunk a teljes felületen
   overlay.addEventListener('gesturestart', _pzPreventNative, { passive: false });
   overlay.addEventListener('gesturechange', _pzPreventNative, { passive: false });
   overlay.addEventListener('touchmove', _pzPreventNative, { passive: false });
 }
-
 function unlockOverlayZoom() {
   const overlay = document.getElementById('photo-overlay');
   overlay.removeEventListener('gesturestart', _pzPreventNative);
@@ -672,7 +625,6 @@ document.getElementById('photo-save-btn').addEventListener('click',()=>{
   },400);
 });
 
-/* ── Oldal-szintű pinch zoom teljes letiltása ── */
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('gesturechange', e => e.preventDefault());
 document.addEventListener('touchmove', e => {
@@ -682,7 +634,6 @@ document.addEventListener('touchmove', e => {
 /* ── Boot ── */
 (async()=>{
   if(!initGL()){document.getElementById('perm-err').textContent='WebGL nem elérhető.';return;}
-
   glCv.addEventListener('webglcontextlost',e=>{
     e.preventDefault();
     cancelAnimationFrame(S.raf);
