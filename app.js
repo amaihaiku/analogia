@@ -484,17 +484,18 @@ function _pzApply() {
 
 function _pzOnDown(e) {
   if (!_pzState) return;
-  // Csak a kép területén indított érintés számít — gombok ne zavarjanak
-  if (e.target.closest('button')) return;
+  // Gombokon (mentés/bezárás) ne induljon zoom
+  if (e.target.closest && e.target.closest('button')) return;
   e.preventDefault();
-  e.stopPropagation();
+  const overlay = document.getElementById('photo-overlay');
+  // Capture az overlay-en — több pointer is elkapható ugyanazon az elemen.
+  // Így a move/up akkor is ide érkezik, ha az ujj a kép szélén kívülre csúszik.
+  try { overlay.setPointerCapture(e.pointerId); } catch (_) {}
 
   _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
-  _pzState.active = true;
-
   const pts = [..._pzState.pointers.values()];
+
   if (pts.length === 2) {
-    // 2. ujj letette — pinch kezdet rögzítése
     _pzState.initDist  = _pzGetDist(pts[0], pts[1]);
     _pzState.initScale = _pzState.scale;
     _pzState.initTx    = _pzState.tx;
@@ -502,7 +503,6 @@ function _pzOnDown(e) {
     _pzState.initMx    = (pts[0].clientX + pts[1].clientX) / 2;
     _pzState.initMy    = (pts[0].clientY + pts[1].clientY) / 2;
   } else {
-    // 1. ujj — drag kezdet
     _pzState.initTx = _pzState.tx;
     _pzState.initTy = _pzState.ty;
     _pzState.initMx = e.clientX;
@@ -511,16 +511,12 @@ function _pzOnDown(e) {
 }
 
 function _pzOnMove(e) {
-  if (!_pzState || !_pzState.active) return;
-  if (!_pzState.pointers.has(e.pointerId)) return;
+  if (!_pzState || !_pzState.pointers.has(e.pointerId)) return;
   e.preventDefault();
-  e.stopPropagation();
-
   _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
   const pts = [..._pzState.pointers.values()];
 
   if (pts.length >= 2) {
-    // Pinch — skálázás + midpoint követés
     const dist = _pzGetDist(pts[0], pts[1]);
     _pzState.scale = Math.max(1.0, Math.min(4.0, _pzState.initScale * (dist / _pzState.initDist)));
     const mx = (pts[0].clientX + pts[1].clientX) / 2;
@@ -529,7 +525,6 @@ function _pzOnMove(e) {
     _pzState.ty = _pzState.initTy + (my - _pzState.initMy);
     _pzApply();
   } else if (pts.length === 1 && _pzState.scale > 1.0) {
-    // Drag — csak ha be van nagyítva
     _pzState.tx = _pzState.initTx + (e.clientX - _pzState.initMx);
     _pzState.ty = _pzState.initTy + (e.clientY - _pzState.initMy);
     _pzApply();
@@ -538,11 +533,11 @@ function _pzOnMove(e) {
 
 function _pzOnUp(e) {
   if (!_pzState) return;
+  const overlay = document.getElementById('photo-overlay');
+  try { overlay.releasePointerCapture(e.pointerId); } catch (_) {}
   _pzState.pointers.delete(e.pointerId);
-  if (_pzState.pointers.size === 0) {
-    _pzState.active = false;
-  } else if (_pzState.pointers.size === 1) {
-    // Visszatérés 1 ujjra — drag kiindulópont frissítése
+  if (_pzState.pointers.size === 1) {
+    // 2→1 ujj: drag kiindulópont frissítése, hogy ne ugorjon
     const [rem] = _pzState.pointers.values();
     _pzState.initTx    = _pzState.tx;
     _pzState.initTy    = _pzState.ty;
@@ -553,19 +548,16 @@ function _pzOnUp(e) {
 }
 
 function initPhotoZoom() {
-  // A listenereket a teljes overlay-re (position:fixed; inset:0) kötjük —
-  // így az ujjak soha nem csúszhatnak ki a hit area-ból.
-  // setPointerCapture-t NEM használunk: az megakadályozná a 2. ujj pointerdown-ját.
   const overlay = document.getElementById('photo-overlay');
-  _pzState = { scale:1, tx:0, ty:0, pointers:new Map(), active:false,
+  _pzState = { scale:1, tx:0, ty:0, pointers:new Map(),
                initDist:1, initScale:1, initTx:0, initTy:0, initMx:0, initMy:0 };
   overlay.style.touchAction = 'none';
   const img = document.getElementById('photo-preview-img');
   img.style.transform = 'translate(0px,0px) scale(1)';
   overlay.addEventListener('pointerdown',   _pzOnDown,  { passive: false });
   overlay.addEventListener('pointermove',   _pzOnMove,  { passive: false });
-  overlay.addEventListener('pointerup',     _pzOnUp);
-  overlay.addEventListener('pointercancel', _pzOnUp);
+  overlay.addEventListener('pointerup',     _pzOnUp,    { passive: false });
+  overlay.addEventListener('pointercancel', _pzOnUp,    { passive: false });
 }
 
 function cleanupPhotoZoom() {
