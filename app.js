@@ -674,6 +674,11 @@ function _pzOnUp(e) {
   }
 }
 
+// Segédfüggvény a natív böngésző-zoom események azonnali megfojtásához
+function _pzPreventNative(e) {
+  e.preventDefault();
+}
+
 function initPhotoZoom() {
   const overlay = document.getElementById('photo-overlay');
   _pzState = { scale:1, tx:0, ty:0, pointers:new Map(),
@@ -681,6 +686,14 @@ function initPhotoZoom() {
   overlay.style.touchAction = 'none';
   const img = document.getElementById('photo-preview-img');
   img.style.transform = 'translate(0px,0px) scale(1)';
+  
+  // KULCSFONTOSSÁGÚ JAVÍTÁS: Kényszerített natív iOS/Android gesztus-tiltás közvetlenül az overlay-en
+  overlay.addEventListener('gesturestart', _pzPreventNative, { passive: false });
+  overlay.addEventListener('gesturechange', _pzPreventNative, { passive: false });
+  overlay.addEventListener('touchmove', e => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+
   overlay.addEventListener('pointerdown',   _pzOnDown,  { passive: false });
   overlay.addEventListener('pointermove',   _pzOnMove,  { passive: false });
   overlay.addEventListener('pointerup',     _pzOnUp,    { passive: false });
@@ -689,6 +702,12 @@ function initPhotoZoom() {
 
 function cleanupPhotoZoom() {
   const overlay = document.getElementById('photo-overlay');
+  
+  // Eseménykezelők tiszta eltávolítása, hogy ne okozzunk memóriaszivárgást
+  overlay.removeEventListener('gesturestart', _pzPreventNative);
+  overlay.removeEventListener('gesturechange', _pzPreventNative);
+  overlay.removeEventListener('touchmove', _pzPreventNative);
+
   overlay.removeEventListener('pointerdown',   _pzOnDown);
   overlay.removeEventListener('pointermove',   _pzOnMove);
   overlay.removeEventListener('pointerup',     _pzOnUp);
