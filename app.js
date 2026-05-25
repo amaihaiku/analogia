@@ -8,8 +8,9 @@
 const S={
   stream:null,raf:null,ready:false,saving:false,
   simKey:'kodachrome',cpuLut:null,
-  ev:0,zoom:1.0,grain:0,grainSize:2,vignette:0,
-  mode:'exposure',
+  shadows:0,highlights:0,tone:0,grain:0,grainSize:2,vignette:0,
+  zoom:1.0,
+  mode:'shadows',
   vidW:1,vidH:1,
   lastPhotoUrl:null,
 };
@@ -98,6 +99,7 @@ uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;
 uniform float u_lut_sz;uniform vec2 u_cvs_sz;uniform vec2 u_vid_sz;
 uniform float u_zoom;uniform float u_ev;uniform float u_vig;
 uniform float u_grain;uniform float u_grain_sz;uniform float u_time;
+uniform float u_shadows;uniform float u_highlights;uniform float u_tone;
 
 vec2 cropUV(vec2 uv){
   float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
@@ -129,6 +131,18 @@ void main(){
   vec3 col=texture2D(u_vid_tex,vuv).rgb;
   col=clamp(col*u_ev,0.,1.);
   col=applyLUT(col);
+  // Shadows lift
+  float lum=dot(col,vec3(0.299,0.587,0.114));
+  float shadowMask=1.0-smoothstep(0.0,0.5,lum);
+  col+=u_shadows*shadowMask*0.4;
+  // Highlights rolloff
+  float highlightMask=smoothstep(0.5,1.0,lum);
+  col-=u_highlights*highlightMask*0.35;
+  // Tone (color temperature): kék-sárga tengely
+  col.r+=u_tone*0.12;
+  col.g+=u_tone*0.04;
+  col.b-=u_tone*0.15;
+  col=clamp(col,0.0,1.0);
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);float n=(fbm(nuv)-.5)*2.;col=clamp(col*(1.+n*u_grain*.45*gc(lum)),0.,1.);}
   gl_FragColor=vec4(col,1.);
@@ -154,7 +168,7 @@ function initGL(){
   gl.enableVertexAttribArray(al);gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
   gl.uniform1i(gl.getUniformLocation(prog,'u_vid_tex'),0);
   gl.uniform1i(gl.getUniformLocation(prog,'u_lut_tex'),1);
-  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();
   return true;
 }
@@ -196,27 +210,29 @@ function render(){
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
   gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
-  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.ev));
+  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,1.0);
   gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
   gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
+  gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
 /* ── Dial ── */
 const MODES={
-  exposure:{min:-2,  max:2,  step:.05,hasCenter:true, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' EV'},
-  zoom:    {min:1.0, max:4.0,step:.05,hasCenter:false,fmt:v=>v.toFixed(1)+'×'},
-  grain:   {min:0,   max:1,  step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
-  vignette:{min:0,   max:1,  step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
+  shadows:    {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
+  highlights: {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
+  tone:       {min:-1,  max:1,   step:.04,hasCenter:true, fmt:v=>(v>=0?'+':'')+Math.round(v*100)+'%'},
+  grain:      {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
+  vignette:   {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
 };
 const TPX=13;
 let ddrag=false,dlast=0,doff=0;
 
 function nT(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
-function getV(){return{exposure:S.ev,zoom:S.zoom,grain:S.grain,vignette:S.vignette}[S.mode];}
+function getV(){return{shadows:S.shadows,highlights:S.highlights,tone:S.tone,grain:S.grain,vignette:S.vignette}[S.mode];}
 function setV(v){
   const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
-  if(S.mode==='exposure')S.ev=v;else if(S.mode==='zoom')S.zoom=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
+  if(S.mode==='shadows')S.shadows=v;else if(S.mode==='highlights')S.highlights=v;else if(S.mode==='tone')S.tone=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
   return v;
 }
 function o2v(o){const m=MODES[S.mode],N=nT();return m.min+(-o/N/TPX)*(m.max-m.min);}
@@ -235,9 +251,12 @@ function buildDial(){
   }
   const cm=document.querySelector('.dial-center-h');
   if(cm)cm.style.opacity=m.hasCenter?'1':'0';
+  const dialWrap=document.getElementById('dial-wrap');
+  const centerLine=document.querySelector('.dial-center-h');
+  if(dialWrap&&centerLine)centerLine.style.left=dialWrap.clientWidth/2+'px';
 }
 function syncDial(){const v=getV(),o=v2o(v);doff=o;const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${o}px)`;updHUD(v);}
-function updHUD(v){const m=MODES[S.mode],f=m.fmt(v);document.getElementById('hud-mode-val').textContent=f;document.getElementById('hud-mode-name').textContent=S.mode.toUpperCase();if(S.mode==='exposure')document.getElementById('hud-ev').textContent=f;}
+function updHUD(v){const m=MODES[S.mode],f=m.fmt(v);document.getElementById('hud-mode-val').textContent=f;document.getElementById('hud-mode-name').textContent=S.mode.toUpperCase();}
 function dMove(dx){doff+=dx;const v=setV(o2v(doff));doff=v2o(v);const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${doff}px)`;updHUD(v);}
 
 const dialEl=document.getElementById('dial-wrap');
@@ -284,16 +303,6 @@ vfOverlay.addEventListener('pointermove', e => {
       
       // Finom kerekítés a dial lépésközére (0.05) a rángatózás elkerülésére
       S.zoom = Math.round(nz / 0.05) * 0.05;
-
-      // UX fegyvertény: Ha nem ZOOM módban vagyunk, átváltunk rá, 
-      // így az alsó mechanikus tárcsa és a LED-ek is animálnak a csípéssel együtt!
-      if (S.mode !== 'zoom') {
-        S.mode = 'zoom';
-        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-        const zBtn = document.querySelector('.mode-btn[data-mode="zoom"]');
-        if (zBtn) zBtn.classList.add('active');
-        buildDial();
-      }
       syncDial();
     }
   }
@@ -375,7 +384,7 @@ async function triggerVfFocus(e) {
 
 /* ── Landscape warning ── */
 function chkOrientation(){document.getElementById('rotate-overlay').classList.toggle('hidden',!window.matchMedia('(orientation:landscape)').matches);}
-window.addEventListener('resize',chkOrientation);
+window.addEventListener('resize',()=>{chkOrientation();const dw=document.getElementById('dial-wrap'),cl=document.querySelector('.dial-center-h');if(dw&&cl)cl.style.left=dw.clientWidth/2+'px';});
 window.matchMedia('(orientation:landscape)').addEventListener('change',chkOrientation);
 chkOrientation();
 
@@ -486,9 +495,10 @@ async function capture(){
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
     try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
     gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
-    gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.ev));
+    gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,1.0);
     gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
     gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
+    gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }
   const glW=glCv.width,glH=glCv.height;
