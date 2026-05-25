@@ -173,11 +173,26 @@ function uploadLUT(ld){
 }
 
 const vid=document.getElementById('vid');
+
 function render(){
   S.raf=requestAnimationFrame(render);
   if(!S.ready||vid.readyState<2)return;
-  const p=glCv.parentElement,bw=p.clientWidth|0,bh=p.clientHeight|0;
-  if(glCv.width!==bw||glCv.height!==bh){glCv.width=bw;glCv.height=bh;gl.viewport(0,0,bw,bh);}
+  
+  const p=glCv.parentElement;
+  
+  // Megnézzük a kijelző valós pixelsűrűségét (Retina/AMOLED szorzó, pl: 2x vagy 3x)
+  const dpr = window.devicePixelRatio || 1;
+  
+  // A fizikai pixelmérethez igazítjuk a belső felbontást a tűéles képért
+  const bw = Math.round(p.clientWidth * dpr);
+  const bh = Math.round(p.clientHeight * dpr);
+  
+  if(glCv.width!==bw||glCv.height!==bh){
+    glCv.width=bw;
+    glCv.height=bh;
+    gl.viewport(0,0,bw,bh);
+  }
+  
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
   gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
