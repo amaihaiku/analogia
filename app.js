@@ -561,7 +561,9 @@ async function capture(){
     pi.onload=()=>{S.lastPhotoUrl=url;};
     pi.src=url;pi.setAttribute('data-filename',fname);
     document.getElementById('photo-overlay').classList.remove('hidden');
-    initPhotoZoom();
+    // ... korábbi kódod változatlan az overlay megnyitásánál
+    document.getElementById('photo-overlay').classList.remove('hidden');
+    lockOverlayZoom(); // <-- Itt aktiváljuk a teljes zárat az előnézetre
     S.saving=false;
   },'image/jpeg',.92);
 }
@@ -596,126 +598,27 @@ async function initCam(){
   }
 }
 
-/* ── Photo overlay pinch-zoom (Pointer Events API) ── */
-let _pzState = null;
-
-function _pzGetDist(a, b) {
-  const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-function _pzApply() {
-  const img = document.getElementById('photo-preview-img');
-  const { scale, tx, ty } = _pzState;
-  img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
-}
-
-function _pzOnDown(e) {
-  if (!_pzState) return;
-  // Gombokon (mentés/bezárás) ne induljon zoom
-  if (e.target.closest && e.target.closest('button')) return;
-  e.preventDefault();
-  const overlay = document.getElementById('photo-overlay');
-  // Capture az overlay-en — több pointer is elkapható ugyanazon az elemen.
-  // Így a move/up akkor is ide érkezik, ha az ujj a kép szélén kívülre csúszik.
-  try { overlay.setPointerCapture(e.pointerId); } catch (_) {}
-
-  _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
-  const pts = [..._pzState.pointers.values()];
-
-  if (pts.length === 2) {
-    _pzState.initDist  = _pzGetDist(pts[0], pts[1]);
-    _pzState.initScale = _pzState.scale;
-    _pzState.initTx    = _pzState.tx;
-    _pzState.initTy    = _pzState.ty;
-    _pzState.initMx    = (pts[0].clientX + pts[1].clientX) / 2;
-    _pzState.initMy    = (pts[0].clientY + pts[1].clientY) / 2;
-  } else {
-    _pzState.initTx = _pzState.tx;
-    _pzState.initTy = _pzState.ty;
-    _pzState.initMx = e.clientX;
-    _pzState.initMy = e.clientY;
-  }
-}
-
-function _pzOnMove(e) {
-  if (!_pzState || !_pzState.pointers.has(e.pointerId)) return;
-  e.preventDefault();
-  _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
-  const pts = [..._pzState.pointers.values()];
-
-  if (pts.length >= 2) {
-    const dist = _pzGetDist(pts[0], pts[1]);
-    _pzState.scale = Math.max(1.0, Math.min(4.0, _pzState.initScale * (dist / _pzState.initDist)));
-    const mx = (pts[0].clientX + pts[1].clientX) / 2;
-    const my = (pts[0].clientY + pts[1].clientY) / 2;
-    _pzState.tx = _pzState.initTx + (mx - _pzState.initMx);
-    _pzState.ty = _pzState.initTy + (my - _pzState.initMy);
-    _pzApply();
-  } else if (pts.length === 1 && _pzState.scale > 1.0) {
-    _pzState.tx = _pzState.initTx + (e.clientX - _pzState.initMx);
-    _pzState.ty = _pzState.initTy + (e.clientY - _pzState.initMy);
-    _pzApply();
-  }
-}
-
-function _pzOnUp(e) {
-  if (!_pzState) return;
-  const overlay = document.getElementById('photo-overlay');
-  try { overlay.releasePointerCapture(e.pointerId); } catch (_) {}
-  _pzState.pointers.delete(e.pointerId);
-  if (_pzState.pointers.size === 1) {
-    // 2→1 ujj: drag kiindulópont frissítése, hogy ne ugorjon
-    const [rem] = _pzState.pointers.values();
-    _pzState.initTx    = _pzState.tx;
-    _pzState.initTy    = _pzState.ty;
-    _pzState.initMx    = rem.clientX;
-    _pzState.initMy    = rem.clientY;
-    _pzState.initScale = _pzState.scale;
-  }
-}
-
-// Segédfüggvény a natív böngésző-zoom események azonnali megfojtásához
+/* ── Mentési ablak zoom teljes tiltása ── */
 function _pzPreventNative(e) {
   e.preventDefault();
 }
 
-function initPhotoZoom() {
+function lockOverlayZoom() {
   const overlay = document.getElementById('photo-overlay');
-  _pzState = { scale:1, tx:0, ty:0, pointers:new Map(),
-               initDist:1, initScale:1, initTx:0, initTy:0, initMx:0, initMy:0 };
   overlay.style.touchAction = 'none';
-  const img = document.getElementById('photo-preview-img');
-  img.style.transform = 'translate(0px,0px) scale(1)';
   
-  // KULCSFONTOSSÁGÚ JAVÍTÁS: Kényszerített natív iOS/Android gesztus-tiltás közvetlenül az overlay-en
+  // Minden kétujjas és csúsztatási kísérletet azonnal megfojtunk a teljes felületen
   overlay.addEventListener('gesturestart', _pzPreventNative, { passive: false });
   overlay.addEventListener('gesturechange', _pzPreventNative, { passive: false });
-  overlay.addEventListener('touchmove', e => {
-    if (e.touches.length > 1) e.preventDefault();
-  }, { passive: false });
-
-  overlay.addEventListener('pointerdown',   _pzOnDown,  { passive: false });
-  overlay.addEventListener('pointermove',   _pzOnMove,  { passive: false });
-  overlay.addEventListener('pointerup',     _pzOnUp,    { passive: false });
-  overlay.addEventListener('pointercancel', _pzOnUp,    { passive: false });
+  overlay.addEventListener('touchmove', _pzPreventNative, { passive: false });
 }
 
-function cleanupPhotoZoom() {
+function unlockOverlayZoom() {
   const overlay = document.getElementById('photo-overlay');
-  
-  // Eseménykezelők tiszta eltávolítása, hogy ne okozzunk memóriaszivárgást
   overlay.removeEventListener('gesturestart', _pzPreventNative);
   overlay.removeEventListener('gesturechange', _pzPreventNative);
   overlay.removeEventListener('touchmove', _pzPreventNative);
-
-  overlay.removeEventListener('pointerdown',   _pzOnDown);
-  overlay.removeEventListener('pointermove',   _pzOnMove);
-  overlay.removeEventListener('pointerup',     _pzOnUp);
-  overlay.removeEventListener('pointercancel', _pzOnUp);
   overlay.style.touchAction = '';
-  const img = document.getElementById('photo-preview-img');
-  img.style.transform = 'translate(0px,0px) scale(1)';
-  _pzState = null;
 }
 
 /* ── Events ── */
@@ -730,9 +633,7 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
 });
 
 document.getElementById('photo-overlay-bg').addEventListener('click',()=>{
-  // Ne zárjon be ha aktív zoom/drag van folyamatban
-  if (_pzState && _pzState.pointers.size > 0) return;
-  cleanupPhotoZoom();
+  unlockOverlayZoom();
   document.getElementById('photo-overlay').classList.add('hidden');
   const img=document.getElementById('photo-preview-img');
   img.src='';
@@ -740,7 +641,7 @@ document.getElementById('photo-overlay-bg').addEventListener('click',()=>{
 });
 
 document.getElementById('photo-overlay-close').addEventListener('click',()=>{
-  cleanupPhotoZoom();
+  unlockOverlayZoom();
   document.getElementById('photo-overlay').classList.add('hidden');
   document.getElementById('photo-preview-img').src='';
   if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
@@ -753,7 +654,7 @@ document.getElementById('photo-save-btn').addEventListener('click',()=>{
   a.href=img.src;a.download=img.getAttribute('data-filename')||'Analogia.jpg';
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(()=>{
-    cleanupPhotoZoom();
+    unlockOverlayZoom();
     document.getElementById('photo-overlay').classList.add('hidden');
     img.src='';
     if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
