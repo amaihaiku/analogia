@@ -476,9 +476,6 @@ function _pzGetDist(a, b) {
   const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
   return Math.sqrt(dx * dx + dy * dy);
 }
-function _pzGetMid(a, b) {
-  return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
-}
 function _pzApply() {
   const img = document.getElementById('photo-preview-img');
   const { scale, tx, ty } = _pzState;
@@ -487,22 +484,25 @@ function _pzApply() {
 
 function _pzOnDown(e) {
   if (!_pzState) return;
+  // Csak a kép területén indított érintés számít — gombok ne zavarjanak
+  if (e.target.closest('button')) return;
+  e.preventDefault();
   e.stopPropagation();
-  // Capture minden pointert a content containeren
-  const cont = document.getElementById('photo-overlay').querySelector('.photo-overlay-content');
-  try { cont.setPointerCapture(e.pointerId); } catch(_) {}
-  _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
 
-  if (_pzState.pointers.size === 2) {
-    const pts = [..._pzState.pointers.values()];
+  _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+  _pzState.active = true;
+
+  const pts = [..._pzState.pointers.values()];
+  if (pts.length === 2) {
+    // 2. ujj letette — pinch kezdet rögzítése
     _pzState.initDist  = _pzGetDist(pts[0], pts[1]);
     _pzState.initScale = _pzState.scale;
     _pzState.initTx    = _pzState.tx;
     _pzState.initTy    = _pzState.ty;
-    const mid = _pzGetMid(pts[0], pts[1]);
-    _pzState.initMx = mid.x;
-    _pzState.initMy = mid.y;
-  } else if (_pzState.pointers.size === 1) {
+    _pzState.initMx    = (pts[0].clientX + pts[1].clientX) / 2;
+    _pzState.initMy    = (pts[0].clientY + pts[1].clientY) / 2;
+  } else {
+    // 1. ujj — drag kezdet
     _pzState.initTx = _pzState.tx;
     _pzState.initTy = _pzState.ty;
     _pzState.initMx = e.clientX;
@@ -511,20 +511,25 @@ function _pzOnDown(e) {
 }
 
 function _pzOnMove(e) {
-  if (!_pzState) return;
+  if (!_pzState || !_pzState.active) return;
+  if (!_pzState.pointers.has(e.pointerId)) return;
   e.preventDefault();
   e.stopPropagation();
-  _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
 
-  if (_pzState.pointers.size >= 2) {
-    const pts = [..._pzState.pointers.values()];
+  _pzState.pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+  const pts = [..._pzState.pointers.values()];
+
+  if (pts.length >= 2) {
+    // Pinch — skálázás + midpoint követés
     const dist = _pzGetDist(pts[0], pts[1]);
     _pzState.scale = Math.max(1.0, Math.min(4.0, _pzState.initScale * (dist / _pzState.initDist)));
-    const mid = _pzGetMid(pts[0], pts[1]);
-    _pzState.tx = _pzState.initTx + (mid.x - _pzState.initMx);
-    _pzState.ty = _pzState.initTy + (mid.y - _pzState.initMy);
+    const mx = (pts[0].clientX + pts[1].clientX) / 2;
+    const my = (pts[0].clientY + pts[1].clientY) / 2;
+    _pzState.tx = _pzState.initTx + (mx - _pzState.initMx);
+    _pzState.ty = _pzState.initTy + (my - _pzState.initMy);
     _pzApply();
-  } else if (_pzState.pointers.size === 1 && _pzState.scale > 1.0) {
+  } else if (pts.length === 1 && _pzState.scale > 1.0) {
+    // Drag — csak ha be van nagyítva
     _pzState.tx = _pzState.initTx + (e.clientX - _pzState.initMx);
     _pzState.ty = _pzState.initTy + (e.clientY - _pzState.initMy);
     _pzApply();
@@ -533,40 +538,43 @@ function _pzOnMove(e) {
 
 function _pzOnUp(e) {
   if (!_pzState) return;
-  e.stopPropagation();
   _pzState.pointers.delete(e.pointerId);
-  if (_pzState.pointers.size === 1) {
+  if (_pzState.pointers.size === 0) {
+    _pzState.active = false;
+  } else if (_pzState.pointers.size === 1) {
+    // Visszatérés 1 ujjra — drag kiindulópont frissítése
     const [rem] = _pzState.pointers.values();
-    _pzState.initTx = _pzState.tx;
-    _pzState.initTy = _pzState.ty;
-    _pzState.initMx = rem.clientX;
-    _pzState.initMy = rem.clientY;
+    _pzState.initTx    = _pzState.tx;
+    _pzState.initTy    = _pzState.ty;
+    _pzState.initMx    = rem.clientX;
+    _pzState.initMy    = rem.clientY;
     _pzState.initScale = _pzState.scale;
   }
 }
 
 function initPhotoZoom() {
-  // A listenereket a content containerre kötjük, nem csak a képre —
-  // így ha az ujjak a kép szélén kívülre csúsznak, az event nem veszik el.
-  const cont = document.getElementById('photo-overlay').querySelector('.photo-overlay-content');
-  _pzState = { scale:1, tx:0, ty:0, pointers:new Map(),
+  // A listenereket a teljes overlay-re (position:fixed; inset:0) kötjük —
+  // így az ujjak soha nem csúszhatnak ki a hit area-ból.
+  // setPointerCapture-t NEM használunk: az megakadályozná a 2. ujj pointerdown-ját.
+  const overlay = document.getElementById('photo-overlay');
+  _pzState = { scale:1, tx:0, ty:0, pointers:new Map(), active:false,
                initDist:1, initScale:1, initTx:0, initTy:0, initMx:0, initMy:0 };
-  cont.style.touchAction = 'none';
+  overlay.style.touchAction = 'none';
   const img = document.getElementById('photo-preview-img');
   img.style.transform = 'translate(0px,0px) scale(1)';
-  cont.addEventListener('pointerdown',   _pzOnDown,  { passive: false });
-  cont.addEventListener('pointermove',   _pzOnMove,  { passive: false });
-  cont.addEventListener('pointerup',     _pzOnUp);
-  cont.addEventListener('pointercancel', _pzOnUp);
+  overlay.addEventListener('pointerdown',   _pzOnDown,  { passive: false });
+  overlay.addEventListener('pointermove',   _pzOnMove,  { passive: false });
+  overlay.addEventListener('pointerup',     _pzOnUp);
+  overlay.addEventListener('pointercancel', _pzOnUp);
 }
 
 function cleanupPhotoZoom() {
-  const cont = document.getElementById('photo-overlay').querySelector('.photo-overlay-content');
-  cont.removeEventListener('pointerdown',   _pzOnDown);
-  cont.removeEventListener('pointermove',   _pzOnMove);
-  cont.removeEventListener('pointerup',     _pzOnUp);
-  cont.removeEventListener('pointercancel', _pzOnUp);
-  cont.style.touchAction = '';
+  const overlay = document.getElementById('photo-overlay');
+  overlay.removeEventListener('pointerdown',   _pzOnDown);
+  overlay.removeEventListener('pointermove',   _pzOnMove);
+  overlay.removeEventListener('pointerup',     _pzOnUp);
+  overlay.removeEventListener('pointercancel', _pzOnUp);
+  overlay.style.touchAction = '';
   const img = document.getElementById('photo-preview-img');
   img.style.transform = 'translate(0px,0px) scale(1)';
   _pzState = null;
