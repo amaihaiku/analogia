@@ -8,9 +8,9 @@
 const S={
   stream:null,raf:null,ready:false,saving:false,
   simKey:'kodachrome',cpuLut:null,
-  shadows:0,highlights:0,tone:0,grain:0,grainSize:2,vignette:0,
+  exposure:0,shadows:0,highlights:0,tone:0,grain:0,grainSize:2,vignette:0,
   zoom:1.0,
-  mode:'shadows',
+  mode:'exposure',
   vidW:1,vidH:1,
   lastPhotoUrl:null,
 };
@@ -210,7 +210,7 @@ function render(){
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
   gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
-  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,1.0);
+  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
   gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
   gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
@@ -219,6 +219,7 @@ function render(){
 
 /* ── Dial ── */
 const MODES={
+  exposure:   {min:-2,  max:2,   step:.05,hasCenter:true, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' EV'},
   shadows:    {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
   highlights: {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
   tone:       {min:-1,  max:1,   step:.04,hasCenter:true, fmt:v=>(v>=0?'+':'')+Math.round(v*100)+'%'},
@@ -229,10 +230,10 @@ const TPX=13;
 let ddrag=false,dlast=0,doff=0;
 
 function nT(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
-function getV(){return{shadows:S.shadows,highlights:S.highlights,tone:S.tone,grain:S.grain,vignette:S.vignette}[S.mode];}
+function getV(){return{exposure:S.exposure,shadows:S.shadows,highlights:S.highlights,tone:S.tone,grain:S.grain,vignette:S.vignette}[S.mode];}
 function setV(v){
   const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
-  if(S.mode==='shadows')S.shadows=v;else if(S.mode==='highlights')S.highlights=v;else if(S.mode==='tone')S.tone=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
+  if(S.mode==='exposure')S.exposure=v;else if(S.mode==='shadows')S.shadows=v;else if(S.mode==='highlights')S.highlights=v;else if(S.mode==='tone')S.tone=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
   return v;
 }
 function o2v(o){const m=MODES[S.mode],N=nT();return m.min+(-o/N/TPX)*(m.max-m.min);}
@@ -495,7 +496,7 @@ async function capture(){
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
     try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
     gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
-    gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,1.0);
+    gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
     gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
     gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
     gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
