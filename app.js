@@ -130,7 +130,7 @@ void main(){
   col=clamp(col*u_ev,0.,1.);
   col=applyLUT(col);
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
-  if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);col=clamp(col+(fbm(nuv)*2.-1.)*u_grain*.2*gc(lum),0.,1.);}
+  if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);col=clamp(col+(fbm(nuv)-.5)*2.*u_grain*.2*gc(lum),0.,1.);}
   gl_FragColor=vec4(col,1.);
 }`;
 
@@ -426,7 +426,7 @@ async function capture(){
   sv.toBlob(blob=>{
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
-    const fname=`Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.jpg`;
+    const fname=`Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.jpg`;
     if(S.lastPhotoUrl)URL.revokeObjectURL(S.lastPhotoUrl);
     const url=URL.createObjectURL(blob);
     showSaving(false);
