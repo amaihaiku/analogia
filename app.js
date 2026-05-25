@@ -11,6 +11,7 @@ const S={
   ev:0,zoom:1.0,grain:0,grainSize:2,vignette:0,
   mode:'exposure',
   vidW:1,vidH:1,
+  lastPhotoUrl:null,
 };
 
 /* ── Film profiles ── */
@@ -250,6 +251,15 @@ window.addEventListener('resize',chkOrientation);
 window.matchMedia('(orientation:landscape)').addEventListener('change',chkOrientation);
 chkOrientation();
 
+/* ── Visibility: pause render when hidden ── */
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){
+    cancelAnimationFrame(S.raf);S.raf=null;
+  }else{
+    if(S.ready&&S.raf===null)render();
+  }
+});
+
 /* ── Film modal ── */
 async function tryLoadLuts(){
   try{
@@ -315,13 +325,8 @@ async function capture(){
   S.saving=true;showSaving(true);
   await new Promise(r=>setTimeout(r,20));
 
-  const vw=vid.videoWidth,vh=vid.videoHeight;
-  // Use 1080px output for speed (was 1920 — 3× faster pixel loop)
+  // Use 1080px output for speed
   const OUT=1080;
-
-  // Square crop, zoom applied
-  const side=Math.min(vw,vh)/S.zoom;
-  const sx=(vw-side)/2,sy=(vh-side)/2;
 
   const frame=document.getElementById('frame-sel').value;
   let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
@@ -346,28 +351,29 @@ async function capture(){
   sCtx.fillRect(0,0,cw,ch);
   if(frame==='film')drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
 
-  // ── Render photo at photoS size ──
+  // ── Read GPU-processed (grain+LUT) frame directly from WebGL canvas ──
+  const glW=glCv.width,glH=glCv.height;
+  const pixels=new Uint8Array(glW*glH*4);
+  gl.readPixels(0,0,glW,glH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+  // WebGL Y-axis is flipped — mirror vertically before use
+  const flipped=new Uint8Array(glW*glH*4);
+  for(let row=0;row<glH;row++){
+    const src=(glH-1-row)*glW*4,dst=row*glW*4;
+    flipped.set(pixels.subarray(src,src+glW*4),dst);
+  }
+  // Crop the square region (matching shader cropUV) from the GL canvas
+  const cAR=glW/glH,vAR=S.vidW/S.vidH;
+  let scx=1,scy=1;
+  if(vAR>cAR)scx=cAR/vAR;else scy=vAR/cAR;
+  scx/=S.zoom;scy/=S.zoom;
+  const cropX=Math.round(((1-scx)/2)*glW),cropY=Math.round(((1-scy)/2)*glH);
+  const cropW=Math.round(scx*glW),cropH=Math.round(scy*glH);
   const tmp=document.createElement('canvas');tmp.width=photoS;tmp.height=photoS;
   const tc=tmp.getContext('2d',{willReadFrequently:true});
-  tc.drawImage(vid,sx,sy,side,side,0,0,photoS,photoS);
-
-  // Pixel pipeline
-  const id=tc.getImageData(0,0,photoS,photoS),pd=id.data;
-  const evm=Math.pow(2,S.ev),va=S.vignette;
-  const ld=S.simKey==='__lut__'&&S.cpuLut?S.cpuLut:PROF[S.simKey]?.lut;
-  for(let i=0;i<pd.length;i+=4){
-    let r=pd[i]*evm,g=pd[i+1]*evm,b=pd[i+2]*evm;
-    if(r>255)r=255;if(g>255)g=255;if(b>255)b=255;
-    if(ld){const rgb=cpuLUT(r,g,b,ld);r=rgb[0];g=rgb[1];b=rgb[2];}
-    if(va>0){
-      const pi=i>>2,x=pi%photoS,y=pi/photoS|0;
-      const dx=(x/photoS-.5)*2,dy=(y/photoS-.5)*2;
-      const vig=Math.max(0,(dx*dx+dy*dy-.3)/1.7);
-      if(vig>0){const vm=1-va*Math.min(1,vig)*.88;r*=vm;g*=vm;b*=vm;}
-    }
-    pd[i]=c255(r);pd[i+1]=c255(g);pd[i+2]=c255(b);
-  }
-  tc.putImageData(id,0,0);
+  const srcCanvas=document.createElement('canvas');srcCanvas.width=glW;srcCanvas.height=glH;
+  const srcCtx=srcCanvas.getContext('2d');
+  srcCtx.putImageData(new ImageData(new Uint8ClampedArray(flipped),glW,glH),0,0);
+  tc.drawImage(srcCanvas,cropX,cropY,cropW,cropH,0,0,photoS,photoS);
 
   if(frame==='antik'){
     // sCtx already has black background from fillRect above.
@@ -410,13 +416,14 @@ async function capture(){
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
     const fname=`Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.jpg`;
+    if(S.lastPhotoUrl)URL.revokeObjectURL(S.lastPhotoUrl);
     const url=URL.createObjectURL(blob);
     showSaving(false);
     const pi=document.getElementById('photo-preview-img');
+    pi.onload=()=>{S.lastPhotoUrl=url;};
     pi.src=url;pi.setAttribute('data-filename',fname);
     document.getElementById('photo-overlay').classList.remove('hidden');
     S.saving=false;
-    setTimeout(()=>URL.revokeObjectURL(url),120000);
   },'image/jpeg',.92);
 }
 
@@ -464,6 +471,7 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
 document.getElementById('photo-overlay-close').addEventListener('click',()=>{
   document.getElementById('photo-overlay').classList.add('hidden');
   document.getElementById('photo-preview-img').src='';
+  if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
 });
 
 document.getElementById('photo-save-btn').addEventListener('click',()=>{
@@ -475,12 +483,27 @@ document.getElementById('photo-save-btn').addEventListener('click',()=>{
   setTimeout(()=>{
     document.getElementById('photo-overlay').classList.add('hidden');
     img.src='';
+    if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
   },400);
 });
 
 /* ── Boot ── */
 (async()=>{
   if(!initGL()){document.getElementById('perm-err').textContent='WebGL nem elérhető.';return;}
+
+  glCv.addEventListener('webglcontextlost',e=>{
+    e.preventDefault();
+    cancelAnimationFrame(S.raf);
+    S.raf=null;
+    S.ready=false;
+  });
+  glCv.addEventListener('webglcontextrestored',()=>{
+    if(!initGL())return;
+    const ld=PROF[S.simKey]?.lut||S.cpuLut;
+    if(ld)uploadLUT(ld);
+    if(S.stream)render();
+  });
+
   buildDial();syncDial();uploadLUT(PROF['kodachrome'].lut);
   await tryLoadLuts();
   if(navigator.mediaDevices?.getUserMedia)initCam();
