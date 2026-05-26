@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="style.css?v=14"/>
+<link rel="stylesheet" href="style.css?v=15"/>
 </head>
 <body>
 
@@ -156,15 +156,13 @@
 
 <video id="vid" playsinline autoplay muted style="display:none"></video>
 <canvas id="save-canvas" style="display:none"></canvas>
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 <script>
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-      for (let registration of registrations) {
-        registration.unregister().then(() => {
-          console.log('[SW] Régi gyorsítótár-börtön sikeresen felszámolva!');
-        });
-      }
+    navigator.mediaDevices.enumerateDevices().then(() => {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        for (let r of regs) r.unregister();
+      });
     });
   }
 </script>

@@ -1,9 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v14 (Double Exposure Engine Update)
-   Features: Light-accumulation film screen blending,
-   symmetrical layout matrix, 40% onion-skin live preview,
-   and inline high-fidelity frame radio components.
+   ANALOGIA — app.js v15 (True WYSIWYG Double Exposure Update)
+   Features: Real-time linear light-accumulation simulation,
+   exact color LUT binding in live view, safe cache-busting.
 ═══════════════════════════════════════ */
 
 const S={
@@ -16,8 +15,8 @@ const S={
   lastPhotoUrl:null,
   
   // Double Exposure Subsystems
-  deActive: false,    // True if DE button is toggled on
-  deStage: 0          // 0: idle, 1: first layer locked inside buffer
+  deActive: false,    
+  deStage: 0          
 };
 
 let videoDevices = [];
@@ -123,7 +122,7 @@ function parseCube(txt){
   return{d:new Float32Array(e),sz};
 }
 
-/* ── WebGL ── */
+/* ── WebGL WYSIWYG Shader Engine ── */
 const VS=`attribute vec2 a_pos;varying vec2 v_uv;
 void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.);}`;
 
@@ -134,10 +133,7 @@ uniform float u_lut_sz;uniform vec2 u_cvs_sz;uniform vec2 u_vid_sz;
 uniform float u_zoom;uniform float u_ev;uniform float u_vig;
 uniform float u_grain;uniform float u_grain_sz;uniform float u_time;
 uniform float u_shadows;uniform float u_highlights;uniform float u_tone;
-
-// Double Exposure Uniform Signals
-uniform float u_de_active;  // 1.0 ha a pufferben el van mentve az elso kepkocka
-uniform float u_de_preview; // 1.0 ha elonezeti onion-skin mod, 0.0 ha vegleges expozicios fuzio
+uniform float u_de_active; 
 
 vec2 cropUV(vec2 uv){
   float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
@@ -167,28 +163,21 @@ void main(){
   vec2 vuv=cropUV(v_uv);
   if(any(lessThan(vuv,vec2(0.)))||any(greaterThan(vuv,vec2(1.)))){gl_FragColor=vec4(0.,0.,0.,1.);return;}
   
+  // 1. Lineáris színtér konverzió a fizikai fényszámításhoz
   vec3 srgbIn = texture2D(u_vid_tex,vuv).rgb;
+  vec3 linA = pow(srgbIn, vec3(2.2)) * u_ev;
+  vec3 linear = linA;
   
-  // Ha a dupla expozicio masodik fázisában járunk
+  // 2. Dupla expozíciós fúzió elvégzése a szűrő (LUT) alkalmazása előtt!
   if(u_de_active > 0.5) {
-    vec3 deSrgb = texture2D(u_de_de_tex_placeholder, vuv).rgb; // Dinamikusan injektált u_de_tex
-    if(u_de_preview > 0.5) {
-      // Élő kompozíciós nézet: 40%-os finom áttetszőségű onion-skin overlay
-      srgbIn = mix(srgbIn, deSrgb, 0.4);
-    } else {
-      // Végleges fotómentés: Analóg filmes fénysorolás (Screen / Lighten blend mechanika)
-      vec3 linA = pow(srgbIn, vec3(2.2)) * u_ev;
-      vec3 linB = pow(deSrgb, vec3(2.2));
-      vec3 fusedLinear = 1.0 - ((1.0 - linA) * (1.5 - linB));
-      srgbIn = pow(clamp(fusedLinear, 0.0, 1.0), vec3(1.0 / 2.2));
-    }
+    vec3 srgbFirst = texture2D(u_de_tex, vuv).rgb;
+    vec3 linB = pow(srgbFirst, vec3(2.2)) * u_ev;
+    
+    // Tiszta analóg film-fizikai fényösszegzés (Kijavított, lágy fúziós mátrix)
+    linear = 1.0 - ((1.0 - clamp(linA, 0.0, 1.0)) * (1.0 - clamp(linB, 0.0, 1.0)));
   }
   
-  vec3 linear = pow(srgbIn, vec3(2.2));
-  if(u_de_active <= 0.5 || u_de_preview > 0.5) {
-    linear *= u_ev;
-  }
-  
+  // 3. Tónuskorrekciók végrehajtása az összegzett lineáris képen
   float linLum = dot(linear, vec3(0.2126, 0.7152, 0.0722));
   
   float shadowMask = 1.0 - smoothstep(0.0, 0.4, linLum);
@@ -199,9 +188,13 @@ void main(){
   float highlightFactor = 1.0 - u_highlights * 0.4;
   linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(highlightFactor)), highlightMask);
   
+  // 4. Visszakódolás sRGB-re a szimulációs profil fogadásához
   vec3 srgbProcessed = pow(clamp(linear, 0.0, 1.0), vec3(1.0 / 2.2));
+  
+  // 5. Film Emulációs LUT profil rásütése (Most már tökéletesen egyezik a preview és a mentés!)
   vec3 col = applyLUT(srgbProcessed);
   
+  // 6. Laboratóriumi utómunka (Tone, Vignette, Grain)
   col.r+=u_tone*0.12;
   col.g+=u_tone*0.04;
   col.b-=u_tone*0.15;
@@ -213,9 +206,6 @@ void main(){
   gl_FragColor=vec4(col,1.);
 }`;
 
-// Shader kód igazítása a dinamikus textúra csatolóhoz
-const processedFS = FS.replace('u_de_de_tex_placeholder', 'u_de_tex');
-
 const glCv=document.getElementById('gl-canvas');
 let gl,prog,vtex,ltex,detex;
 const U={};
@@ -223,7 +213,7 @@ const U={};
 function initGL(){
   gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:true});
   if(!gl)return false;
-  const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,processedFS);
+  const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,FS);
   if(!vs||!fs)return false;
   prog=gl.createProgram();
   gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
@@ -238,7 +228,7 @@ function initGL(){
   gl.uniform1i(gl.getUniformLocation(prog,'u_lut_tex'),1);
   gl.uniform1i(gl.getUniformLocation(prog,'u_de_tex'),2);
   
-  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active', 'u_de_preview'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
   return true;
 }
@@ -279,15 +269,13 @@ function render(){
   gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
   
-  // Dupla expozíció shader jelek kiküldése
+  // A kereső most már élőben, szűrővel együtt rendereli le a dupla expozíciót!
   if(S.deActive && S.deStage === 1) {
     gl.uniform1f(U.u_de_active, 1.0);
-    gl.uniform1f(U.u_de_preview, 1.0); // Keresőben onion-skin mód fut
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, detex);
   } else {
     gl.uniform1f(U.u_de_active, 0.0);
-    gl.uniform1f(U.u_de_preview, 0.0);
   }
   
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
@@ -491,17 +479,16 @@ function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onloa
 async function capture(){
   if(S.saving||!S.ready)return;
   
-  // Ha a Dupla Expozíció aktív és ez az ELSŐ lövés (Stage 0)
+  // Első réteg lezárása (Nem mentünk fájlt, csak textúrába mentünk a shadernek)
   if(S.deActive && S.deStage === 0) {
     S.deStage = 1;
     document.getElementById('hud-focus-label').textContent = 'DE 2/2';
     document.getElementById('shutter').classList.add('de-primed');
     
-    // Elmentjük az aktuális nyers videó kockát a háttér másodlagos puffer textúrájába (detex)
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, detex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid);
-    return; // Megszakítjuk a fizikai fájlmentést, várjuk a második lövést
+    return; 
   }
 
   S.saving=true;showSaving(true);
@@ -538,15 +525,12 @@ async function capture(){
     gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
     gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
     
-    // Sütési fázis: kikapcsoljuk az onion-skin elonezetet, kiküldjük a teljes blend fúziót a koordinátákra
     if(S.deActive && S.deStage === 1) {
       gl.uniform1f(U.u_de_active, 1.0);
-      gl.uniform1f(U.u_de_preview, 0.0); // 0.0 = Fizikai fénysorolás lefutása a shaderek között
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, detex);
     } else {
       gl.uniform1f(U.u_de_active, 0.0);
-      gl.uniform1f(U.u_de_preview, 0.0);
     }
     
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
@@ -578,7 +562,6 @@ async function capture(){
     sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
   }
 
-  // Dátum rásütés
   if(document.getElementById('date-tog').checked){
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -610,7 +593,6 @@ async function capture(){
     document.getElementById('photo-overlay').classList.remove('hidden');
     lockOverlayZoom();
     
-    // Sikeres mentés után lezárjuk a Dupla expozíciós fázist, és visszaállunk alapállapotba
     if(S.deActive) {
       S.deStage = 0;
       document.getElementById('shutter').classList.remove('de-primed');
@@ -630,7 +612,7 @@ function drawFilm(c,W,H,sh){
   });
 }
 
-/* ── Hardveres kamerakezelő ── */
+/* ── Hardveres sávváltó ── */
 async function listVideoDevices() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();

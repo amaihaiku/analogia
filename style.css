@@ -164,7 +164,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 /* HARDWARE DUAl-EXPOSURE BUTTON (LEFT SYMMETRY) */
 .de-toggle-btn{
   position:absolute;left:24px;width:52px;height:52px;border-radius:8px;
-  background:var(--bg);border:2px solid var(--edge);
+  background:var(--bg);border:1.5px solid var(--edge);
   box-shadow:0 3px 8px rgba(0,0,0,.6), 0 0 0 3px var(--metal2), inset 0 0 8px rgba(0,0,0,0.8);
   cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:all 0.1s;
   padding:0;gap:3px;
@@ -178,7 +178,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 /* HARDWARE CAMERA TOGGLE SWITCH (RIGHT SYMMETRY) */
 .cam-toggle-btn{
   position:absolute;right:24px;width:52px;height:52px;border-radius:8px;
-  background:var(--bg);border:2px solid var(--edge);
+  background:var(--bg);border:1.5px solid var(--edge);
   box-shadow:0 3px 8px rgba(0,0,0,.6), 0 0 0 3px var(--metal2), inset 0 0 8px rgba(0,0,0,0.8);
   cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s;padding:0;
 }
