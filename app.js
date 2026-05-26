@@ -1,7 +1,7 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v18
-   Változások v18: valódi por+karc FX (fényerő-emelés nélkül),
+   ANALOGIA — app.js v19
+   Változások v19: valódi por+karc FX (fényerő-emelés nélkül),
    vaku időzítés javítva (megvilágított frame bevárása rVFC-vel),
    torch-képesség ellenőrzés, antik dátum normál font + kisebb,
    DE/FX gombfelirat arany, WYSIWYG film-dátum igazítás.
@@ -79,7 +79,7 @@ async function loadExternalFilters() {
   const promises = AVAILABLE_FILTERS.map(id => {
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = `filters/${id}.js?v=18`;
+      script.src = `filters/${id}.js?v=19`;
       script.onload = resolve;
       script.onerror = resolve; 
       document.head.appendChild(script);
@@ -177,44 +177,52 @@ void main(){
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);float n=(fbm(nuv)-.5)*2.;col=clamp(col*(1.+n*u_grain*.45*gc(lum)),0.,1.);}
   
-  // Élő procedurális por és karc — közepes, retro filmes hangulat (nem világosítja a képet)
-  // FONTOS: a hash bemenete normalizált, kis egész cellaszám, hogy mediump precízión is működjön.
+  // Élő procedurális por és karc — FINOM, rendezetlen, overlay jellegű (nem mesterkélt)
   if(u_dust_active > 0.5) {
     float seed = u_dust_seed;
-    // A por/karc a "filmsíkon" ül (képernyő-UV), nem a jeleneten -> zoomtól független
-    vec2 fuv = v_uv;
+    vec2 fuv = v_uv; // a "filmsíkon" ül, zoomtól független
 
-    // --- Sötét porszemek ---
-    vec2 dGrid = floor(fuv * 90.0);
+    // --- Por: ritka, kicsi, véletlen pozícióban a cellán belül (nem rácsos) ---
+    vec2 dGrid = floor(fuv * 60.0);
     float dRand = h2(dGrid + vec2(seed * 37.0, seed * 91.0));
-    if (dRand > 0.975) {
-      vec2 dLocal = fract(fuv * 90.0) - 0.5;
+    if (dRand > 0.93) {
+      // véletlen pozíció a cellán belül -> megtöri a szabályos rácsot
+      vec2 dJit = vec2(h2(dGrid + 1.7), h2(dGrid + 9.3));
+      vec2 dLocal = fract(fuv * 60.0) - dJit;
       float dDist = length(dLocal);
-      float dShape = h2(dGrid + 5.0);
-      if (dDist < 0.18 + dShape * 0.12) {
-        col *= 0.25;
-      }
+      float dSize = 0.04 + h2(dGrid + 5.0) * 0.05; // apró pont
+      // lágy szélű, halvány sötétedés (nem kemény fekete pötty)
+      float dMask = 1.0 - smoothstep(dSize * 0.5, dSize, dDist);
+      col = mix(col, col * 0.55, dMask * 0.6);
     }
 
-    // --- Világos szöszök/filmpor ---
-    vec2 lGrid = floor(fuv * 130.0);
+    // --- Ritka világos szösz ---
+    vec2 lGrid = floor(fuv * 80.0);
     float lRand = h2(lGrid + vec2(seed * 53.0 + 11.0, seed * 17.0 + 3.0));
-    if (lRand > 0.988) {
-      vec2 lLocal = fract(fuv * 130.0) - 0.5;
-      if (length(lLocal) < 0.22) {
-        col = mix(col, vec3(0.92), 0.8);
-      }
+    if (lRand > 0.985) {
+      vec2 lJit = vec2(h2(lGrid + 2.1), h2(lGrid + 7.7));
+      float lDist = length(fract(fuv * 80.0) - lJit);
+      float lMask = 1.0 - smoothstep(0.04, 0.09, lDist);
+      col = mix(col, vec3(0.85), lMask * 0.4); // halvány világos pont
     }
 
-    // --- Függőleges karcok ---
-    float sCol = floor(fuv.x * 70.0);
-    float sRand = h2(vec2(sCol, floor(seed * 11.0)));
-    if (sRand > 0.94) {
-      float sLocal = abs(fract(fuv.x * 70.0) - 0.5);
-      float sLen = sn(vec2(sCol * 1.3 + seed * 7.0, fuv.y * 5.0));
-      if (sLocal < 0.12 && sLen > 0.4) {
-        float bright = sRand > 0.97 ? 0.85 : 0.0;
-        col = mix(col, vec3(bright), 0.5);
+    // --- Karc: max 1-2 az egész képen, döntött, hullámzó, szaggatott, halvány ---
+    // 24 lehetséges sáv, ebből csak nagyon kevés aktív
+    float sBand = floor(fuv.x * 24.0);
+    float sActive = h2(vec2(sBand, floor(seed * 13.0) + 0.5));
+    if (sActive > 0.92) {
+      // a karc nem függőleges: y-tól függő vízszintes eltolás (dőlés + hullám)
+      float wobble = (sn(vec2(sBand * 3.1, fuv.y * 4.0 + seed * 2.0)) - 0.5) * 0.06;
+      float bandCenter = (sBand + 0.5) / 24.0 + wobble;
+      float dx = abs(fuv.x - bandCenter);
+      // szaggatottság függőlegesen
+      float seg = sn(vec2(sBand * 2.0 + seed * 5.0, fuv.y * 8.0));
+      float thickness = 0.0012 + h2(vec2(sBand, 3.0)) * 0.001;
+      if (dx < thickness && seg > 0.5) {
+        float scratchTone = h2(vec2(sBand, 8.0)) > 0.5 ? 0.8 : 0.1;
+        // halvány overlay-keverés, lágy él
+        float sMask = (1.0 - smoothstep(thickness * 0.5, thickness, dx)) * (seg - 0.5) * 2.0;
+        col = mix(col, vec3(scratchTone), sMask * 0.3);
       }
     }
   }
@@ -534,7 +542,7 @@ function updateLiveDate() {
   
   if (frame === 'antik') {
     el.textContent = getRetroDateString();
-    el.style.bottom = '20px'; // Feljebb tolva
+    el.style.bottom = '28px'; // Kicsit lejjebb (korábban túl magas volt)
     el.style.left = '0';
     el.style.right = '0';
     el.style.width = '100%';
@@ -616,7 +624,7 @@ function waitForVideoFrames(n, minMs) {
     }, minMs);
 
     // Biztonsági felső korlát, hogy soha ne ragadjon be
-    const hardTimer = setTimeout(done, minMs + 250);
+    const hardTimer = setTimeout(done, minMs + 400);
 
     if (hasRVFC) {
       const step = () => {
@@ -675,9 +683,9 @@ async function capture(){
           await track.applyConstraints({ advanced: [{ torch: true }] });
           torchTrack = track;
           // Megvárjuk, hogy a megvilágítás tényleg beérjen a videóstreambe.
-          // A LED felfutása + auto-exposure átállás jellemzően 150-300ms,
-          // ezért min. 220ms ÉS legalább 5 friss videóframe kell.
-          await waitForVideoFrames(5, 220);
+          // A LED felfutása + auto-exposure átállás egyes eszközökön (és Brave alatt)
+          // 300-450ms is lehet, ezért bőven várunk: min. 450ms ÉS legalább 8 friss frame.
+          await waitForVideoFrames(8, 450);
         } catch (_) { torchTrack = null; }
       }
     }
@@ -766,13 +774,17 @@ async function capture(){
       
       if (frame === 'antik') {
         const ds = getRetroDateString();
-        const afs = Math.max(9, photoS*.022|0); // Kisebb méret az Antik kerethez
-        sCtx.font=`normal ${afs}px Georgia, serif`; sCtx.textAlign='center'; // Normál (nem bold) súly
+        const afs = Math.max(16, photoS*.030|0);
+        sCtx.font=`normal ${afs}px Georgia, serif`; sCtx.textAlign='center'; sCtx.textBaseline='alphabetic';
         const tx = cw / 2;
-        // Feljebb tolva a maszkoló sáv fölé
-        const ty = ch - Math.round(OUT * 0.155); 
-        sCtx.fillStyle='#2a2a2a'; // Nagyon sötétszürke
-        sCtx.fillText(ds,tx,ty);
+        // A keret világos alsó passe-partout sávjára, ugyanúgy mint az élőképen.
+        const ty = ch - Math.round(OUT * 0.045);
+        // Finom világos alátét, hogy bármilyen háttéren (keret vagy fotószél) olvasható legyen
+        const tw = sCtx.measureText(ds).width;
+        sCtx.fillStyle = 'rgba(238,232,220,0.55)';
+        sCtx.fillRect(tx - tw/2 - 10, ty - afs, tw + 20, afs * 1.35);
+        sCtx.fillStyle = '#2a2a2a';
+        sCtx.fillText(ds, tx, ty);
       } else {
         const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
         sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
