@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v10 (Film Profile Update)
-   Fixes: topbar font, antik frame black bg,
-   faster capture via reduced output size.
+   ANALOGIA — app.js v11 (Pseudo-RAW Update)
+   Fixes: Linear space exposure, bidirectional 
+   shadows/highlights, perfect dial centering.
    Updated: 10 precise film emulation profiles.
 ═══════════════════════════════════════ */
 
@@ -48,10 +48,9 @@ const PD={
     let rn=scv(r*.85,.5,1.4),gn=scv(g*.92,.5,1.3),bn=scv(b+.05,.5,1.25);
     const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*2.8),h_orig=Math.max(0,l*3-2);
     let rout=rn+s*.04+h_orig*.08, gout=gn+s*.02-h_orig*.04, bout=bn+s*.10;
-    // Halation & Bloom szimuláció a highlight területeken (l > 0.85)
     if(l>0.85){
       const t=Math.max(0,Math.min(1,(l-0.85)/0.15));
-      const h=t*t*(3-2*t); // simított átmenet (smoothstep)
+      const h=t*t*(3-2*t);
       rout+=0.15*h;
       bout-=0.04*h;
     }
@@ -73,28 +72,28 @@ const PD={
     const a=(rn+gn+bn)/3;return[a+(rn-a)*1.8+.04,a+(gn-a)*1.5+.02,a+(bn-a)*1.6-.05];}},
     
   highcontrast_bw:{name:'HIGH CONTRAST',sub:'Crushed blacks · Clean whites · Graphic',fn(r,g,b){
-    let l=0.25*r+0.65*g+0.10*b; // Optikai csatorna mix
-    l=scv(l,0.42,3.5);            // Erős S-görbe
-    if(l<0.25)l*=0.6;             // Shadow crush
-    if(l>0.75)l=0.75+(l-0.75)*1.3; // Highlight expansion
+    let l=0.25*r+0.65*g+0.10*b;
+    l=scv(l,0.42,3.5);
+    if(l<0.25)l*=0.6;
+    if(l>0.75)l=0.75+(l-0.75)*1.3;
     return[l,l,l];}},
     
   l_monochrome:{name:'L-MONOCHROME',sub:'Leica rendering · Rich midtones · Airy',fn(r,g,b){
-    let l=0.30*r+0.59*g+0.11*b; // Standard monokróm mix
-    l=scv(l,0.50,1.1);            // Finom tónusgörbe
-    const t=1-Math.abs(l-0.5)*2;l+=t*0.04; // Középtónus kiemelés
-    if(l<0.3)l=l*0.88+0.035;      // Enyhe shadow lift
-    if(l>0.88)l=0.88+(l-0.88)*0.4; // Highlight rolloff
+    let l=0.30*r+0.59*g+0.11*b;
+    l=scv(l,0.50,1.1);
+    const t=1-Math.abs(l-0.5)*2;l+=t*0.04;
+    if(l<0.3)l=l*0.88+0.035;
+    if(l>0.88)l=0.88+(l-0.88)*0.4;
     return[l,l,l];}},
     
   infrared:{name:'INFRARED',sub:'Green becomes white · Sky darkens · Dramatic',fn(r,g,b){
-    let l=0.05*r+0.88*g+0.07*b; // Erősen zöld-domináns hamis infravörös mix
-    l=scv(l,0.45,2.2);            // Drámai kontraszt
-    l-=b*0.08;                    // Kék ég elnyomása
-    l=Math.max(0,Math.min(1,l));  // Biztonsági tónus-clamp
+    let l=0.05*r+0.88*g+0.07*b;
+    l=scv(l,0.45,2.2);
+    l-=b*0.08;
+    l=Math.max(0,Math.min(1,l));
     let rout=l+Math.max(0,l-0.7)*0.12;
     let gout=l+Math.max(0,l-0.7)*0.04;
-    let bout=l-Math.max(0,l-0.7)*0.08; // Finom meleg csúcsfény tónus
+    let bout=l-Math.max(0,l-0.7)*0.08;
     return[rout,gout,bout];}}
 };
 
@@ -156,20 +155,44 @@ float gc(float l){float t=1.-abs(l-.5)*2.;return t*t*(3.-2.*t);}
 void main(){
   vec2 vuv=cropUV(v_uv);
   if(any(lessThan(vuv,vec2(0.)))||any(greaterThan(vuv,vec2(1.)))){gl_FragColor=vec4(0.,0.,0.,1.);return;}
-  vec3 col=texture2D(u_vid_tex,vuv).rgb;
-  col=clamp(col*u_ev,0.,1.);
-  col=applyLUT(col);
-  float lum=dot(col,vec3(0.299,0.587,0.114));
-  float shadowMask=1.0-smoothstep(0.0,0.5,lum);
-  col+=u_shadows*shadowMask*0.4;
-  float highlightMask=smoothstep(0.5,1.0,lum);
-  col-=u_highlights*highlightMask*0.35;
+  
+  // 1. Nyers sRGB kamerakép beolvasása
+  vec3 srgbIn = texture2D(u_vid_tex,vuv).rgb;
+  
+  // 2. Dekódolás lineáris térbe ("Pseudo-RAW" állapot a torzításmentes expozícióhoz)
+  vec3 linear = pow(srgbIn, vec3(2.2));
+  
+  // 3. Valódi fizikai alapú expozíció szorzás lineáris térben
+  linear *= u_ev;
+  
+  // 4. Lineáris luminancia kiszámítása a maszkoláshoz
+  float linLum = dot(linear, vec3(0.2126, 0.7152, 0.0722));
+  
+  // 5. Kétirányú Árnyék (Shadows) kezelése hatványgörbével (Crush / Lift)
+  float shadowMask = 1.0 - smoothstep(0.0, 0.4, linLum);
+  float shadowFactor = 1.0 - u_shadows * 0.5;
+  linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(shadowFactor)), shadowMask);
+  
+  // 6. Kétirányú Csúcsfény (Highlights) kezelése hatványgörbével (Recover / Boost)
+  float highlightMask = smoothstep(0.5, 1.0, linLum);
+  float highlightFactor = 1.0 - u_highlights * 0.4;
+  linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(highlightFactor)), highlightMask);
+  
+  // 7. Visszakódolás sRGB-re a LUT filmprofil bemenetéhez
+  vec3 srgbProcessed = pow(clamp(linear, 0.0, 1.0), vec3(1.0 / 2.2));
+  
+  // 8. Film emulációs profil alkalmazása
+  vec3 col = applyLUT(srgbProcessed);
+  
+  // 9. Laboratóriumi utómunka (Tone, Vignette, Grain) a kész filmkockán
   col.r+=u_tone*0.12;
   col.g+=u_tone*0.04;
   col.b-=u_tone*0.15;
   col=clamp(col,0.0,1.0);
+  
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);float n=(fbm(nuv)-.5)*2.;col=clamp(col*(1.+n*u_grain*.45*gc(lum)),0.,1.);}
+  
   gl_FragColor=vec4(col,1.);
 }`;
 
@@ -237,14 +260,14 @@ function render(){
 
 /* ── Dial ── */
 const MODES={
-  exposure:   {min:-2,  max:2,   step:.05,hasCenter:true, fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' EV'},
-  shadows:    {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
-  highlights: {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
-  tone:       {min:-1,  max:1,   step:.04,hasCenter:true, fmt:v=>(v>=0?'+':'')+Math.round(v*100)+'%'},
+  exposure:   {min:-2,  max:2,   step:.05,hasCenter:true, fmt:v=>(v>0?'+':'')+v.toFixed(2)+' EV'},
+  shadows:    {min:-1,  max:1,   step:.02,hasCenter:true, fmt:v=>(v>0?'+':'')+Math.round(v*100)+'%'},
+  highlights: {min:-1,  max:1,   step:.02,hasCenter:true, fmt:v=>(v>0?'+':'')+Math.round(v*100)+'%'},
+  tone:       {min:-1,  max:1,   step:.04,hasCenter:true, fmt:v=>(v>0?'+':'')+Math.round(v*100)+'%'},
   grain:      {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
   vignette:   {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
 };
-const TPX=13;
+const TPX=14; // CSS mérethez igazítva (2px ticks + 2 * 6px margin = 14px pixelenként)
 let ddrag=false,dlast=0,doff=0;
 
 function nT(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
