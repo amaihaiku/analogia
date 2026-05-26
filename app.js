@@ -1,7 +1,7 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v20
-   Változások v20: valódi por+karc FX (fényerő-emelés nélkül),
+   ANALOGIA — app.js v21
+   Változások v21: valódi por+karc FX (fényerő-emelés nélkül),
    vaku időzítés javítva (megvilágított frame bevárása rVFC-vel),
    torch-képesség ellenőrzés, antik dátum normál font + kisebb,
    DE/FX gombfelirat arany, WYSIWYG film-dátum igazítás.
@@ -79,7 +79,7 @@ async function loadExternalFilters() {
   const promises = AVAILABLE_FILTERS.map(id => {
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = `filters/${id}.js?v=20`;
+      script.src = `filters/${id}.js?v=21`;
       script.onload = resolve;
       script.onerror = resolve; 
       document.head.appendChild(script);
@@ -206,20 +206,20 @@ void main(){
       col = mix(col, vec3(0.85), lMask * 0.4); // halvány világos pont
     }
 
-    // --- Karc: 2-4 az egész képen, döntött, hullámzó, szaggatott, halvány ---
-    float sBand = floor(fuv.x * 24.0);
+    // --- Karc: VÍZSZINTES, 2-4 az egész képen, dőlt, hullámzó, szaggatott, halvány ---
+    float sBand = floor(fuv.y * 24.0);
     float sActive = h2(vec2(sBand, floor(seed * 13.0) + 0.5));
     if (sActive > 0.85) {
-      // a karc nem függőleges: y-tól függő vízszintes eltolás (dőlés + hullám)
-      float wobble = (sn(vec2(sBand * 3.1, fuv.y * 4.0 + seed * 2.0)) - 0.5) * 0.06;
+      // a karc nem tökéletesen vízszintes: x-től függő függőleges eltolás (dőlés + hullám)
+      float wobble = (sn(vec2(sBand * 3.1, fuv.x * 4.0 + seed * 2.0)) - 0.5) * 0.06;
       float bandCenter = (sBand + 0.5) / 24.0 + wobble;
-      float dx = abs(fuv.x - bandCenter);
-      // szaggatottság függőlegesen
-      float seg = sn(vec2(sBand * 2.0 + seed * 5.0, fuv.y * 7.0));
+      float dy = abs(fuv.y - bandCenter);
+      // szaggatottság vízszintesen (a karc nem fut végig)
+      float seg = sn(vec2(sBand * 2.0 + seed * 5.0, fuv.x * 7.0));
       float thickness = 0.0014 + h2(vec2(sBand, 3.0)) * 0.0012;
-      if (dx < thickness && seg > 0.42) {
+      if (dy < thickness && seg > 0.42) {
         float scratchTone = h2(vec2(sBand, 8.0)) > 0.5 ? 0.85 : 0.05;
-        float sMask = (1.0 - smoothstep(thickness * 0.4, thickness, dx)) * smoothstep(0.42, 0.7, seg);
+        float sMask = (1.0 - smoothstep(thickness * 0.4, thickness, dy)) * smoothstep(0.42, 0.7, seg);
         col = mix(col, vec3(scratchTone), sMask * 0.5);
       }
     }
@@ -539,16 +539,9 @@ function updateLiveDate() {
   const frame = getSelectedFrame();
   
   if (frame === 'antik') {
-    el.textContent = getRetroDateString();
-    el.style.bottom = '3.5%'; // Százalékos, hogy egyezzen a mentett kép keret-sávjával
-    el.style.left = '0';
-    el.style.right = '0';
-    el.style.width = '100%';
-    el.style.textAlign = 'center';
-    el.style.color = '#2a2a2a'; // Nagyon sötétszürke Serif font
-    el.style.fontFamily = 'Georgia, serif';
-    el.style.fontWeight = 'normal'; // Antik kerethez normál (nem bold) súly
-    el.style.fontSize = '11px'; // Kisebb Serif betűméret
+    // Antik keretnél nincs dátum
+    el.classList.add('hidden');
+    return;
   } else {
     const now = new Date(), p = n => String(n).padStart(2, '0');
     el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -764,33 +757,22 @@ async function capture(){
       drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
     }
 
-    // JAVÍTVA: 1920-as Antik dátumozás rásütése középre igazítva és védve a kitakarástól (sötétebb, feljebb, tagolva)
+    // Dátum rásütése a mentett képre — antik keretnél SOHA (ott nincs dátum)
     const dateTog = document.getElementById('date-tog');
-    if(dateTog && dateTog.checked){
+    if(dateTog && dateTog.checked && frame !== 'antik'){
       const now=new Date(),p=n=>String(n).padStart(2,'0');
       const fs=Math.max(14,photoS*.036|0);
-      
-      if (frame === 'antik') {
-        const ds = getRetroDateString();
-        const afs = Math.max(16, photoS*.030|0);
-        sCtx.font=`normal ${afs}px Georgia, serif`; sCtx.textAlign='center'; sCtx.textBaseline='alphabetic';
-        const tx = cw / 2;
-        const ty = ch - Math.round(OUT * 0.035); // egyezik az élőkép 3.5%-ával
-        sCtx.fillStyle = '#2a2a2a';
-        sCtx.fillText(ds, tx, ty);
-      } else {
-        const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
-        sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
-        let tx = photoX + photoS - fs * 0.5;
-        let ty = photoY + photoS - fs * 0.5;
-        if (frame === 'film') {
-          ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
-        }
-        sCtx.fillStyle='rgba(0,0,0,0.6)';
-        sCtx.fillText(ds,tx+2,ty+2);
-        sCtx.fillStyle='#e8830a';
-        sCtx.fillText(ds,tx,ty);
+      const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
+      sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
+      let tx = photoX + photoS - fs * 0.5;
+      let ty = photoY + photoS - fs * 0.5;
+      if (frame === 'film') {
+        ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
       }
+      sCtx.fillStyle='rgba(0,0,0,0.6)';
+      sCtx.fillText(ds,tx+2,ty+2);
+      sCtx.fillStyle='#e8830a';
+      sCtx.fillText(ds,tx,ty);
     }
 
     if(frame==='polaroid'){
@@ -918,8 +900,25 @@ const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTo
 const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleFlash);
 const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) dustTogBtn.addEventListener('click', toggleDust);
 
+// Antik keretnél a dátum nem engedélyezett: kikapcsoljuk és letiltjuk a kapcsolót
+function syncDateToggleAvailability() {
+  const dateTog = document.getElementById('date-tog');
+  if (!dateTog) return;
+  const frame = getSelectedFrame();
+  const dateGroup = dateTog.closest('.toggle-group');
+  if (frame === 'antik') {
+    if (dateTog.checked) dateTog.checked = false;
+    dateTog.disabled = true;
+    if (dateGroup) dateGroup.classList.add('disabled');
+  } else {
+    dateTog.disabled = false;
+    if (dateGroup) dateGroup.classList.remove('disabled');
+  }
+}
+
 document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
   radio.addEventListener('change', () => {
+    syncDateToggleAvailability();
     updateLiveFramePreview();
     updateLiveDate();
   });
@@ -1032,6 +1031,7 @@ window.addEventListener('appinstalled', () => {
     const fl = document.getElementById('film-label'); if(fl) fl.textContent = PROF['kodachrome'].name;
   }
   syncDial();
+  syncDateToggleAvailability();
   updateLiveFramePreview();
   updateLiveDate();
   await listVideoDevices();
