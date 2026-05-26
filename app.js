@@ -24,7 +24,6 @@ let videoDevices = [];
 let currentDeviceIndex = 0;
 let deferredPrompt = null;
 
-// Aktuális fotó ideiglenes tárolói az explicit gombos mentéshez
 let activeBlobUrl = null;
 let activeFilename = "";
 
@@ -425,7 +424,6 @@ function getSelectedFrame() {
   return activeRadio ? activeRadio.value : 'none';
 }
 
-// Élő képkeret-előnézet szinkronizálása a kijelzőn
 function updateLiveFramePreview() {
   const frame = getSelectedFrame();
   const filmFrame = document.getElementById('preview-frame-film');
@@ -550,7 +548,7 @@ async function capture(){
       sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
     }
 
-    // JAVÍTVA: Keret-kompatibilis intelligens dátum elhelyezés
+    // JAVÍTVA: Keret-kompatibilis intelligens dátum elhelyezési koordináta-számítás
     const dateTog = document.getElementById('date-tog');
     if(dateTog && dateTog.checked){
       const now=new Date(),p=n=>String(n).padStart(2,'0');
@@ -558,17 +556,19 @@ async function capture(){
       const fs=Math.max(14,photoS*.036|0);
       sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
       
-      let tx=photoX+photoS-fs*.4;
-      let ty=photoY+photoS-fs*.5;
+      let tx = photoX + photoS - fs * 0.5;
+      let ty = photoY + photoS - fs * 0.5;
       
       if (frame === 'film') {
-        ty = photoY + photoS - Math.round(OUT * .13) - fs * .4; // Filmcsík fekete sávja fölé tolás
+        ty = photoY + photoS - fs * 0.8; // Biztonságosan a filmcsík perforációja FÖLÉ tolva
       } else if (frame === 'antik') {
-        tx = photoX + photoS - fs * 1.3; // Beljebb igazítás az indák miatt
-        ty = photoY + photoS - fs * 1.3;
+        tx = photoX + photoS - fs * 1.6; // Beljebb húzva, hogy a sarokdísz ne takarja el
+        ty = photoY + photoS - fs * 1.6;
       }
       
-      sCtx.fillStyle='rgba(0,0,0,.4)';sCtx.fillText(ds,tx+2,ty+2);
+      sCtx.fillStyle='rgba(0,0,0,0.6)';
+      sCtx.fillText(ds,tx+2,ty+2);
+      
       sCtx.fillStyle=(frame==='antik')?'#7a6440':'#e8830a';
       sCtx.fillText(ds,tx,ty);
     }
@@ -588,11 +588,9 @@ async function capture(){
       const url=URL.createObjectURL(blob);
       S.lastPhotoUrl = url;
       
-      // Globális adatok rögzítése a manuális gombhoz
       activeBlobUrl = url;
       activeFilename = fname;
       
-      // JAVÍTVA (Version A): In-App előnézeti galéria megnyitása a kéretlen letöltések helyett
       const previewImg = document.getElementById('photo-preview-img');
       const photoOverlay = document.getElementById('photo-overlay');
       if (previewImg && photoOverlay) {
@@ -610,13 +608,22 @@ async function capture(){
   });
 }
 
+// JAVÍTVA: Ritkább, 1:1 precíz téglalap alapú perforáció kirajzolása mentéskor (tökéletesen egyezik a CSS-sel)
 function drawFilm(c,W,H,sh){
   c.fillStyle='#111008';c.fillRect(0,0,W,H);
   [0,H-sh].forEach(sy=>{
     c.fillStyle='#1e1c17';c.fillRect(0,sy,W,sh);
-    const hw=sh*.5|0,hh=sh*.55|0,sp=hw*2.2,hy=sy+(sh-hh)/2;
-    c.fillStyle='#0a0904';let x=sp*.25;
-    while(x<W-hw){c.beginPath();if(c.roundRect)c.roundRect(x,hy,hw,hh,3);else c.rect(x,hy,hw,hh);c.fill();x+=sp;}
+    const hh=sh*.55|0, hy=sy+(sh-hh)/2;
+    const hw=W*.07|0; 
+    const steps = 5;
+    c.fillStyle='#0a0904';
+    for(let i=0; i<steps; i++) {
+      const colWidth = W / steps;
+      const x = (colWidth * i) + (colWidth - hw) / 2;
+      c.beginPath();
+      c.rect(x,hy,hw,hh);
+      c.fill();
+    }
   });
 }
 
@@ -684,12 +691,11 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
 const deTogBtn = document.getElementById('de-toggle-btn'); if(deTogBtn) deTogBtn.addEventListener('click', toggleDoubleExposure);
 const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTogBtn.addEventListener('click', cycleCamera);
 
-// Keretválasztó rádiógombok eseményfigyelése az élő kép maszkolásához
 document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
   radio.addEventListener('change', updateLiveFramePreview);
 });
 
-// Dedikált In-App Előnézeti Galéria Gombkezelők
+// JAVÍTVA: Mentés gombra kattintás után azonnal elindul a letöltés ÉS bezáródik az overlay ablak
 const photoSaveBtn = document.getElementById('photo-save-btn');
 if (photoSaveBtn) {
   photoSaveBtn.onclick = () => {
@@ -700,6 +706,10 @@ if (photoSaveBtn) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    
+    // Az ablak automatikus bezárása sikeres mentés után
+    const photoOverlay = document.getElementById('photo-overlay');
+    if (photoOverlay) photoOverlay.classList.add('hidden');
   };
 }
 

@@ -7,7 +7,6 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased;user-select:none}
 
-/* Globális univerzális rejtő osztály a PWA elemek és keretek üzembiztos kapcsolásához */
 .hidden { display: none !important; }
 
 .install-overlay{position:fixed;inset:0;z-index:11000;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px}
@@ -77,18 +76,18 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .vf-bezel{position:relative;width:100%;aspect-ratio:1/1;background:#000;border:2px solid var(--dim);overflow:hidden;box-shadow:inset 0 0 24px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.6)}
 #gl-canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
 
-/* Élő képkeret rétegek abszolút maszkolása (Nem nyomja szét a felületet) */
+/* JAVÍTVA: Ritkább, fixen 5 lyukból álló matematikai felosztású élő filmcsík maszk */
 .preview-frame-film {
   position: absolute; inset: 0; pointer-events: none; z-index: 2;
   display: flex; flex-direction: column; justify-content: space-between;
 }
 .preview-frame-film::before, .preview-frame-film::after {
   content: ''; height: 13%; background-color: #1e1c17; position: relative;
-  background-image: repeating-linear-gradient(90deg, #0a0904 0px, #0a0904 10px, transparent 10px, transparent 22px);
-  background-size: 22px 55%; background-repeat: repeat-x;
+  background-image: linear-gradient(90deg, transparent 32.5%, #0a0904 32.5%, #0a0904 67.5%, transparent 67.5%);
+  background-size: 20% 55%; background-repeat: repeat-x;
 }
-.preview-frame-film::before { border-bottom: 2px solid #111008; background-position: center bottom 4px; }
-.preview-frame-film::after { border-top: 2px solid #111008; background-position: center top 4px; }
+.preview-frame-film::before { border-bottom: 2px solid #111008; background-position: 0 center; }
+.preview-frame-film::after { border-top: 2px solid #111008; background-position: 0 center; }
 
 .preview-frame-antik { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .preview-frame-antik img { width: 100%; height: 100%; object-fit: cover; display: block; }
