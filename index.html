@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="style.css?v=13"/>
+<link rel="stylesheet" href="style.css?v=14"/>
 </head>
 <body>
 
@@ -37,21 +37,6 @@
       <button class="photo-overlay-close" id="photo-overlay-close">BEZÁRÁS</button>
     </div>
   </div>
-</div>
-
-<div id="gallery-modal" class="modal hidden">
-  <div class="modal-backdrop" id="gallery-backdrop"></div>
-  <div class="modal-box">
-    <div class="modal-header">
-      <span class="modal-title">ANALOGIA ALBUM</span>
-      <button class="modal-close" id="gallery-close"></button>
-    </div>
-    <div class="gallery-grid" id="gallery-grid"></div>
-  </div>
-</div>
-
-<div id="gallery-lightbox" class="gallery-lightbox hidden">
-  <img id="lightbox-img" src="" alt="Nagyított kép"/>
 </div>
 
 <div id="saving-overlay" class="saving-overlay hidden">
@@ -89,7 +74,7 @@
       <span class="film-btn-arrow">▾</span>
     </button>
     <div class="hud-right">
-      <button class="exit-btn" id="exit-btn" title="Kilépés">✕</button>
+      <button class="exit-btn" id="exit-btn" title="Kilépés"></button>
     </div>
   </header>
 
@@ -138,19 +123,23 @@
         </label>
         <span class="tog-lbl">DÁTUM</span>
       </div>
-      <select class="frame-sel" id="frame-sel">
-        <option value="none">— Keret —</option>
-        <option value="antik">Antik</option>
-        <option value="polaroid">Polaroid</option>
-        <option value="film">Film Strip</option>
-      </select>
+      
+      <div class="frame-radio-container">
+        <div class="frame-radio-group">
+          <label class="fr-lbl"><input type="radio" name="frame-opt" value="none" checked/><span>KI</span></label>
+          <label class="fr-lbl"><input type="radio" name="frame-opt" value="antik"/><span>ANTIK</span></label>
+          <label class="fr-lbl"><input type="radio" name="frame-opt" value="polaroid"/><span>POLA</span></label>
+          <label class="fr-lbl"><input type="radio" name="frame-opt" value="film"/><span>FILM</span></label>
+        </div>
+        <span class="tog-lbl">KERET</span>
+      </div>
     </div>
 
     <div class="shutter-row">
-      <div class="thumb-btn" id="thumb-btn" title="Analogia Album">
-        <img id="thumb-img" class="hidden" alt="Miniatűr"/>
-        <div id="thumb-placeholder"></div>
-      </div>
+      <button class="de-toggle-btn" id="de-toggle-btn" title="Dupla Expozíció">
+        <span class="de-led" id="de-led"></span>
+        <span class="de-text">DE</span>
+      </button>
       
       <button class="shutter" id="shutter">
         <span class="sh-ring"></span>
@@ -167,14 +156,13 @@
 
 <video id="vid" playsinline autoplay muted style="display:none"></video>
 <canvas id="save-canvas" style="display:none"></canvas>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 <script>
-  // Kényszerített Service Worker megsemmisítés a beragadt cache-börtön szétzúzásához
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(registrations => {
       for (let registration of registrations) {
         registration.unregister().then(() => {
-          console.log('[SW] Régi offline cache sikeresen felszámolva!');
+          console.log('[SW] Régi gyorsítótár-börtön sikeresen felszámolva!');
         });
       }
     });

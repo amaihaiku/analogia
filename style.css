@@ -32,16 +32,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .modal-title{font-family:var(--display);font-size:22px;letter-spacing:.2em;color:var(--gold)}
 
-/* PERFECTLY CENTERED EXQUISITE CLOSE BUTTON */
+/* HARMONIZED PREMIUM CORNER CLOSE BUTTON */
 .modal-close{
-  width:32px;height:32px;border-radius:4px;
-  background:var(--bg);border:1.5px solid var(--gold-dim);
+  width:32px;height:32px;border-radius:50%;
+  background:var(--bg);border:1.5px solid var(--edge);
   color:var(--gold);cursor:pointer;padding:0;
   display:flex;align-items:center;justify-content:center;
-  line-height:1;transition:background .1s;
+  box-shadow:0 2px 5px rgba(0,0,0,.5), 0 0 0 2px var(--metal2), 0 0 0 3px var(--edge);
+  transition:transform 0.1s;
 }
-.modal-close::before{content:'✕';font-family:var(--font);font-size:14px;font-weight:bold}
-.modal-close:active{background:var(--metal)}
+.modal-close::before{content:'✕';font-family:var(--font);font-size:12px;font-weight:bold;color:var(--gold)}
+.modal-close:active{transform:scale(0.9);}
 
 .modal-list{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
 .film-item{display:flex;align-items:center;gap:14px;padding:11px 14px;background:var(--bg2);border:1px solid var(--edge);cursor:pointer;transition:background .1s}
@@ -55,23 +56,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .modal-upload-btn{display:block;text-align:center;font-size:11px;letter-spacing:.12em;color:var(--gold);border:1px dashed var(--gold-dim);padding:12px;cursor:pointer}
 .modal-upload-btn:active{background:var(--gold-glow)}
 .modal-upload-btn input{display:none}
-
-/* ALBUM GRID & DELETE CONTROLS */
-.gallery-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:10px 0;max-height:55vh;overflow-y:auto}
-.gallery-item{aspect-ratio:1/1;background:#000;border:1px solid var(--edge);border-radius:4px;overflow:hidden;position:relative}
-.gallery-item img{width:100%;height:100%;object-fit:cover;cursor:pointer}
-.item-del-btn{
-  position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;
-  background:rgba(24,22,20,0.88);border:1px solid var(--red);
-  color:var(--red);font-family:var(--font);font-size:10px;font-weight:bold;
-  display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;z-index:5;
-}
-.item-del-btn:active{background:var(--red);color:#000}
-
-/* GALLERY LIGHTBOX LAYER */
-.gallery-lightbox{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.96);display:flex;align-items:center;justify-content:center;touch-action:none}
-.gallery-lightbox.hidden{display:none}
-.gallery-lightbox img{max-width:94%;max-height:90%;object-fit:contain;border:1px solid var(--dim);box-shadow:0 10px 30px rgba(0,0,0,0.8)}
 
 /* SHELL */
 .shell{display:flex;flex-direction:column;width:100vw;height:100dvh;background:var(--bg2);background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.07) 0,rgba(0,0,0,.07) 1px,transparent 1px,transparent 5px),repeating-linear-gradient(0deg,rgba(0,0,0,.07) 0,rgba(0,0,0,.07) 1px,transparent 1px,transparent 5px);overflow:hidden}
@@ -87,11 +71,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .film-btn-arrow{font-size:12px;color:var(--gold-dim);flex-shrink:0;line-height:1}
 .hud-right{display:flex;align-items:center;justify-content:flex-end;height:44px;flex-shrink:0;width:44px}
 
-/* EXIT SHUTTER-LIKE BUTTON */
-.exit-btn{position:relative;width:34px;height:34px;border-radius:50%;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
-.exit-btn::before{content:'';position:absolute;inset:0;border-radius:50%;background:var(--bg);border:1.5px solid var(--edge);box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 0 2px var(--metal2), 0 0 0 3px var(--edge)}
-.exit-btn::after{content:'✕';position:relative;z-index:1;color:var(--red);font-family:var(--font);font-size:13px;font-weight:bold}
-.exit-btn:active::after{transform:scale(0.85)}
+/* EXQUISITE EXIT BUTTON IN THE TOPBAR */
+.exit-btn{
+  position:relative;width:34px;height:34px;border-radius:50%;
+  background:var(--bg);border:1.5px solid var(--edge);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;padding:0;
+  box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 0 2px var(--metal2), 0 0 0 3px var(--edge);
+}
+.exit-btn::after{content:'✕';color:var(--red);font-family:var(--font);font-size:13px;font-weight:bold}
+.exit-btn:active{transform:scale(0.92)}
 
 /* VIEWFINDER — 1:1 square */
 .vf-wrap{flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px 12px}
@@ -133,53 +121,69 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .dial-ticks-h{display:flex;align-items:center;will-change:transform;flex-shrink:0;padding:0 50vw}
 .dt{flex-shrink:0;width:2px;margin:0 6px;background:var(--dim);border-radius:1px}
 .dt.maj{background:var(--muted)}
-
-/* Tökéletes matematikai szimmetria: a zéró osztásvonal szélességét 4px-re, margóját 5px-re állítottuk. Így a teljes szélessége pontosan 14px marad (4+5+5), akárcsak a többi vonalé (2+6+6). Ezzel megszűnt a nulla pont elcsúszása! */
 .dt.zero{background:var(--gold);width:4px;margin:0 5px}
 .dial-center-h{position:absolute;top:10px;bottom:10px;left:50%;transform:translateX(-50%);width:2px;background:var(--gold);pointer-events:none;box-shadow:0 0 6px var(--gold-glow)}
 
-/* DATE + FRAME ROW */
-.aux-row{display:flex;align-items:center;justify-content:space-between;padding:0 20px;height:50px;border-bottom:1px solid var(--edge);flex-shrink:0}
-.toggle-group{display:flex;align-items:center;gap:10px}
+/* DATE + HIGH END SEGMENTED RADIO ROW */
+.aux-row{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:52px;border-bottom:1px solid var(--edge);flex-shrink:0}
+.toggle-group{display:flex;align-items:center;gap:8px}
 .tog-wrap{display:flex;align-items:center;cursor:pointer}
 .tog-wrap input{display:none}
 .tog-track{width:38px;height:22px;background:var(--bg);border:1px solid var(--dim);border-radius:11px;position:relative;transition:all .14s;flex-shrink:0}
 .tog-wrap input:checked+.tog-track{background:var(--gold);border-color:var(--gold)}
 .tog-thumb{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:transform .14s,background .14s}
 .tog-wrap input:checked+.tog-track .tog-thumb{transform:translateX(16px);background:var(--bg)}
-.tog-lbl{font-size:10px;letter-spacing:.14em;color:var(--muted)}
-.frame-sel{font-family:var(--font);font-size:11px;letter-spacing:.1em;color:var(--gold);background:var(--bg);border:1px solid var(--gold-dim);padding:8px 26px 8px 10px;outline:none;cursor:pointer;appearance:none;-webkit-appearance:none;border-radius:2px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%238c7332'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;background-color:var(--bg)}
-.frame-sel option{color:var(--text);background:var(--bg2)}
+.tog-lbl{font-size:10px;letter-spacing:.14em;color:var(--muted);font-weight:500}
 
-/* SHUTTER ROW & SYMMETRICAL SIDE BUTTONS */
+/* SEGMENTED RETRO FRAME RADIOS */
+.frame-radio-container{display:flex;align-items:center;gap:10px}
+.frame-radio-group{display:flex;background:var(--bg);border:1px solid var(--dim);border-radius:4px;padding:2px;overflow:hidden}
+.fr-lbl{cursor:pointer;display:flex;align-items:center;justify-content:center}
+.fr-lbl input{display:none}
+.fr-lbl span{font-size:9px;font-weight:500;letter-spacing:0.05em;padding:4px 9px;color:var(--muted);border-radius:2px;transition:all 0.1s}
+.fr-lbl input:checked+span{background:var(--gold);color:var(--bg);font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.3)}
+
+/* SHUTTER ROW & SYMMETRICAL HARDWARE BUTTONS */
 .shutter-row{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;position:relative}
 .shutter{position:relative;width:76px;height:76px;border-radius:50%;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;touch-action:manipulation}
 .sh-ring{position:absolute;inset:0;border-radius:50%;background:var(--bg);border:2px solid var(--edge);box-shadow:0 4px 14px rgba(0,0,0,.8),0 0 0 5px var(--metal2),0 0 0 7px var(--edge)}
 .sh-core{position:relative;z-index:1;width:54px;height:54px;border-radius:50%;background:radial-gradient(circle at 38% 32%,#f06060 0%,var(--red) 50%,#6a1010 100%);box-shadow:0 3px 10px rgba(0,0,0,.8),inset 0 3px 5px rgba(255,255,255,.15),inset 0 -2px 4px rgba(0,0,0,.3);transition:transform .07s,box-shadow .07s}
 .shutter:active .sh-core{transform:scale(.9) translateY(2px);box-shadow:0 1px 4px rgba(0,0,0,.7),inset 0 3px 7px rgba(0,0,0,.5)}
 
-/* ALBUM PREVIEW THUMBNAIL (LEFT) */
-.thumb-btn{
+/* PULSATING ANIMATION FOR ACTIVE DE STAGE */
+@keyframes de-pulse {
+  0% { box-shadow: 0 3px 10px rgba(0,0,0,.8); transform: scale(1); }
+  50% { box-shadow: 0 0 20px rgba(200,168,75,0.6); transform: scale(1.03); }
+  100% { box-shadow: 0 3px 10px rgba(0,0,0,.8); transform: scale(1); }
+}
+.shutter.de-primed .sh-core {
+  animation: de-pulse 1.6s ease-in-out infinite;
+  background: radial-gradient(circle at 38% 32%, #fbc531 0%, var(--gold) 60%, #8c7332 100%);
+}
+
+/* HARDWARE DUAl-EXPOSURE BUTTON (LEFT SYMMETRY) */
+.de-toggle-btn{
   position:absolute;left:24px;width:52px;height:52px;border-radius:8px;
   background:var(--bg);border:2px solid var(--edge);
   box-shadow:0 3px 8px rgba(0,0,0,.6), 0 0 0 3px var(--metal2), inset 0 0 8px rgba(0,0,0,0.8);
-  overflow:hidden;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s;
+  cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:all 0.1s;
+  padding:0;gap:3px;
 }
-.thumb-btn:active{transform:scale(0.92)}
-.thumb-btn img{width:100%;height:100%;object-fit:cover;display:block}
-#thumb-placeholder{width:100%;height:100%;background:linear-gradient(135deg, var(--dim), var(--metal))}
+.de-toggle-btn:active{transform:scale(0.92)}
+.de-text{font-size:10px;font-weight:bold;font-family:var(--font);color:var(--muted);letter-spacing:0.05em;line-height:1}
+.de-toggle-btn.active .de-text{color:var(--gold);text-shadow:0 0 4px var(--gold-glow)}
+.de-led{width:5px;height:5px;border-radius:50%;background:var(--dim);transition:all 0.15s}
+.de-toggle-btn.active .de-led{background:var(--gold);box-shadow:0 0 6px var(--gold)}
 
 /* HARDWARE CAMERA TOGGLE SWITCH (RIGHT SYMMETRY) */
 .cam-toggle-btn{
   position:absolute;right:24px;width:52px;height:52px;border-radius:8px;
   background:var(--bg);border:2px solid var(--edge);
   box-shadow:0 3px 8px rgba(0,0,0,.6), 0 0 0 3px var(--metal2), inset 0 0 8px rgba(0,0,0,0.8);
-  cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s;
-  padding:0;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s;padding:0;
 }
 .cam-toggle-btn:active{transform:scale(0.92)}
-.cam-toggle-btn svg{width:24px;height:24px;fill:var(--gold);transition:fill 0.1s}
-.cam-toggle-btn:active svg{fill:var(--text)}
+.cam-toggle-btn svg{width:22px;height:22px;fill:var(--gold)}
 
 @supports(height:100dvh){.shell{height:100dvh}}
 @supports(padding-bottom:env(safe-area-inset-bottom)){.ctrl-bottom{padding-bottom:env(safe-area-inset-bottom)}}
@@ -192,7 +196,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .photo-overlay-hint{background:rgba(200,168,75,.15);border:1px solid var(--gold-dim);padding:10px 16px;border-radius:4px;text-align:center}
 .photo-overlay-hint span{font-size:12px;letter-spacing:.1em;color:var(--gold)}
 .photo-preview-img{width:100%;max-width:400px;border:2px solid var(--gold-dim);display:block;touch-action:none;-webkit-touch-callout:none;-webkit-user-drag:none;user-select:none;-webkit-user-select:none;will-change:transform;transform-origin:center center;pointer-events:none}
-.photo-overlay-content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:14px;padding:20px;width:100%;max-width:440px;touch-action:none}
 .photo-overlay-actions{display:flex;flex-direction:column;gap:8px;width:100%;max-width:400px}
 .photo-overlay-save{font-family:var(--font);font-size:12px;letter-spacing:.14em;color:var(--bg);background:var(--gold);border:none;padding:13px;cursor:pointer;border-radius:2px;font-weight:500}
 .photo-overlay-save:active{filter:brightness(.9)}
