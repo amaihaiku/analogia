@@ -1,9 +1,9 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v13 (Instant Save & Symmetrical UI)
-   Fixes: Ultra-fast 240px local album compressor,
-   perfect 0-point slide mapping, native multi-cam 
-   cycler button, lightbox view, item drop array splice.
+   ANALOGIA — app.js v14 (Double Exposure Engine Update)
+   Features: Light-accumulation film screen blending,
+   symmetrical layout matrix, 40% onion-skin live preview,
+   and inline high-fidelity frame radio components.
 ═══════════════════════════════════════ */
 
 const S={
@@ -14,7 +14,10 @@ const S={
   mode:'exposure',
   vidW:1,vidH:1,
   lastPhotoUrl:null,
-  gallery:[]
+  
+  // Double Exposure Subsystems
+  deActive: false,    // True if DE button is toggled on
+  deStage: 0          // 0: idle, 1: first layer locked inside buffer
 };
 
 let videoDevices = [];
@@ -126,11 +129,15 @@ void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.)
 
 const FS=`precision mediump float;
 varying vec2 v_uv;
-uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;
+uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;uniform sampler2D u_de_tex;
 uniform float u_lut_sz;uniform vec2 u_cvs_sz;uniform vec2 u_vid_sz;
 uniform float u_zoom;uniform float u_ev;uniform float u_vig;
 uniform float u_grain;uniform float u_grain_sz;uniform float u_time;
 uniform float u_shadows;uniform float u_highlights;uniform float u_tone;
+
+// Double Exposure Uniform Signals
+uniform float u_de_active;  // 1.0 ha a pufferben el van mentve az elso kepkocka
+uniform float u_de_preview; // 1.0 ha elonezeti onion-skin mod, 0.0 ha vegleges expozicios fuzio
 
 vec2 cropUV(vec2 uv){
   float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
@@ -161,8 +168,26 @@ void main(){
   if(any(lessThan(vuv,vec2(0.)))||any(greaterThan(vuv,vec2(1.)))){gl_FragColor=vec4(0.,0.,0.,1.);return;}
   
   vec3 srgbIn = texture2D(u_vid_tex,vuv).rgb;
+  
+  // Ha a dupla expozicio masodik fázisában járunk
+  if(u_de_active > 0.5) {
+    vec3 deSrgb = texture2D(u_de_de_tex_placeholder, vuv).rgb; // Dinamikusan injektált u_de_tex
+    if(u_de_preview > 0.5) {
+      // Élő kompozíciós nézet: 40%-os finom áttetszőségű onion-skin overlay
+      srgbIn = mix(srgbIn, deSrgb, 0.4);
+    } else {
+      // Végleges fotómentés: Analóg filmes fénysorolás (Screen / Lighten blend mechanika)
+      vec3 linA = pow(srgbIn, vec3(2.2)) * u_ev;
+      vec3 linB = pow(deSrgb, vec3(2.2));
+      vec3 fusedLinear = 1.0 - ((1.0 - linA) * (1.5 - linB));
+      srgbIn = pow(clamp(fusedLinear, 0.0, 1.0), vec3(1.0 / 2.2));
+    }
+  }
+  
   vec3 linear = pow(srgbIn, vec3(2.2));
-  linear *= u_ev;
+  if(u_de_active <= 0.5 || u_de_preview > 0.5) {
+    linear *= u_ev;
+  }
   
   float linLum = dot(linear, vec3(0.2126, 0.7152, 0.0722));
   
@@ -188,14 +213,17 @@ void main(){
   gl_FragColor=vec4(col,1.);
 }`;
 
+// Shader kód igazítása a dinamikus textúra csatolóhoz
+const processedFS = FS.replace('u_de_de_tex_placeholder', 'u_de_tex');
+
 const glCv=document.getElementById('gl-canvas');
-let gl,prog,vtex,ltex;
+let gl,prog,vtex,ltex,detex;
 const U={};
 
 function initGL(){
   gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:true});
   if(!gl)return false;
-  const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,FS);
+  const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,processedFS);
   if(!vs||!fs)return false;
   prog=gl.createProgram();
   gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
@@ -208,8 +236,10 @@ function initGL(){
   gl.enableVertexAttribArray(al);gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
   gl.uniform1i(gl.getUniformLocation(prog,'u_vid_tex'),0);
   gl.uniform1i(gl.getUniformLocation(prog,'u_lut_tex'),1);
-  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
-  vtex=mkT();ltex=mkT();
+  gl.uniform1i(gl.getUniformLocation(prog,'u_de_tex'),2);
+  
+  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active', 'u_de_preview'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+  vtex=mkT();ltex=mkT();detex=mkT();
   return true;
 }
 function mkS(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
@@ -242,11 +272,24 @@ function render(){
   }
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
+  
   gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
   gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
   gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
   gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
+  
+  // Dupla expozíció shader jelek kiküldése
+  if(S.deActive && S.deStage === 1) {
+    gl.uniform1f(U.u_de_active, 1.0);
+    gl.uniform1f(U.u_de_preview, 1.0); // Keresőben onion-skin mód fut
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, detex);
+  } else {
+    gl.uniform1f(U.u_de_active, 0.0);
+    gl.uniform1f(U.u_de_preview, 0.0);
+  }
+  
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
@@ -290,7 +333,6 @@ function buildDial(){
   if(dialWrap&&centerLine)centerLine.style.left=dialWrap.clientWidth/2+'px';
 }
 
-/* A -7px eltolás és a zéró tick egyensúlya abszolút precíz központosítást garantál */
 function syncDial(){const v=getV(),o=v2o(v);doff=o;const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${o - 7}px)`;updHUD(v);}
 function updHUD(v){const m=MODES[S.mode],f=m.fmt(v);document.getElementById('hud-mode-val').textContent=f;document.getElementById('hud-mode-name').textContent=S.mode.toUpperCase();}
 function dMove(dx){doff+=dx;const v=setV(o2v(doff));doff=v2o(v);const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${doff - 7}px)`;updHUD(v);}
@@ -377,10 +419,7 @@ async function triggerVfFocus(e) {
   try {
     await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
     await tk.applyConstraints({
-      advanced: [{
-        focusMode: 'continuous',
-        pointsOfInterest: [{ x: videoX, y: videoY }]
-      }]
+      advanced: [{ focusMode: 'continuous', pointsOfInterest: [{ x: videoX, y: videoY }] }]
     });
   } catch (_) {
     try { await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (__) {}
@@ -393,15 +432,6 @@ function chkOrientation(){document.getElementById('rotate-overlay').classList.to
 window.addEventListener('resize',()=>{chkOrientation();const dw=document.getElementById('dial-wrap'),cl=document.querySelector('.dial-center-h');if(dw&&cl)cl.style.left=dw.clientWidth/2+'px';});
 window.matchMedia('(orientation:landscape)').addEventListener('change',chkOrientation);
 chkOrientation();
-
-/* ── Visibility ── */
-document.addEventListener('visibilitychange',()=>{
-  if(document.hidden){
-    cancelAnimationFrame(S.raf);S.raf=null;
-  }else{
-    if(S.ready&&S.raf===null)render();
-  }
-});
 
 /* ── Film modal ── */
 async function tryLoadLuts(){
@@ -438,93 +468,21 @@ document.getElementById('lut-upload').addEventListener('change',async e=>{
   catch(err){alert('LUT hiba: '+err.message);}e.target.value='';
 });
 
-/* ── INTERN ALBUM CORE ── */
-function initAlbumStorage() {
-  try { S.gallery = JSON.parse(localStorage.getItem('analogia_album_data') || '[]'); } catch(_) { S.gallery = []; }
-  syncThumbUI();
-}
-
-function syncThumbUI() {
-  const img = document.getElementById('thumb-img');
-  const plc = document.getElementById('thumb-placeholder');
-  if (S.gallery.length > 0) {
-    img.src = S.gallery[S.gallery.length - 1];
-    img.classList.remove('hidden');
-    plc.classList.add('hidden');
-  } else {
-    img.classList.add('hidden');
-    plc.classList.remove('hidden');
-  }
-}
-
-function deleteAlbumItem(index, event) {
-  event.stopPropagation();
-  S.gallery.splice(index, 1);
-  try {
-    localStorage.setItem('analogia_album_data', JSON.stringify(S.gallery));
-  } catch(_) {}
-  syncThumbUI();
-  openGalleryModal();
-}
-
-function openLightbox(src) {
-  const lb = document.getElementById('gallery-lightbox');
-  const limg = document.getElementById('lightbox-img');
-  limg.src = src;
-  lb.classList.remove('hidden');
-}
-
-function buildGalleryGrid(grid) {
-  grid.innerHTML = '';
-  if (S.gallery.length === 0) {
-    grid.innerHTML = '<div style="grid-column:span 3;text-align:center;font-size:11px;color:var(--muted);padding:40px 0;">Az Analogia album üres</div>';
-    return;
-  }
-  [...S.gallery].reverse().forEach((src, revIdx) => {
-    const origIdx = S.gallery.length - 1 - revIdx;
-    
-    const wrapper = document.createElement('div');
-    wrapper.className = 'gallery-item';
-    
-    const img = document.createElement('img');
-    img.src = src;
-    img.onclick = () => openLightbox(src);
-    
-    const delBtn = document.createElement('button');
-    delBtn.className = 'item-del-btn';
-    delBtn.textContent = '✕';
-    delBtn.onclick = (e) => deleteAlbumItem(origIdx, e);
-    
-    wrapper.appendChild(img);
-    wrapper.appendChild(delBtn);
-    grid.appendChild(wrapper);
-  });
-}
-
-function openGalleryModal() {
-  const grid = document.getElementById('gallery-grid');
-  buildGalleryGrid(grid);
-  document.getElementById('gallery-modal').classList.remove('hidden');
-}
-
-function closeGalleryModal() {
-  document.getElementById('gallery-modal').classList.add('hidden');
+/* ── DOUBLE EXPOSURE INTERACTION CONTROLLER ── */
+function toggleDoubleExposure() {
+  S.deActive = !S.deActive;
+  S.deStage = 0;
+  const btn = document.getElementById('de-toggle-btn');
+  const sht = document.getElementById('shutter');
+  btn.classList.toggle('active', S.deActive);
+  sht.classList.remove('de-primed');
+  document.getElementById('hud-focus-label').textContent = 'AF';
 }
 
 /* ── CAPTURE ── */
-function c255(v){return Math.max(0,Math.min(255,v+.5|0));}
-function cpuLUT(r,g,b,ld){
-  const{d,sz}=ld,sc2=sz-1;
-  const rf=Math.min(r/255,1)*sc2,gf=Math.min(g/255,1)*sc2,bf=Math.min(b/255,1)*sc2;
-  const r0=rf|0,r1=Math.min(r0+1,sc2),g0=gf|0,g1=Math.min(g0+1,sc2),b0=bf|0,b1=Math.min(b0+1,sc2);
-  const dr=rf-r0,dg=gf-g0,db=bf-b0;
-  const idx=(a,c,dd)=>(dd*sz*sz+c*sz+a)*3;
-  return[0,1,2].map(ch=>{
-    const v000=d[idx(r0,g0,b0)+ch],v100=d[idx(r1,g0,b0)+ch],v010=d[idx(r0,g1,b0)+ch],v110=d[idx(r1,g1,b0)+ch];
-    const v001=d[idx(r0,g0,b1)+ch],v101=d[idx(r1,g0,b1)+ch],v011=d[idx(r0,g1,b1)+ch],v111=d[idx(r1,g1,b1)+ch];
-    const c00=v000+(v100-v000)*dr,c10=v010+(v110-v010)*dr,c01=v001+(v101-v001)*dr,c11=v011+(v111-v011)*dr;
-    return(c00+(c10-c00)*dg+(c01+(c11-c01)*dg-c00-(c10-c00)*dg)*db)*255;
-  });
+function getSelectedFrame() {
+  const activeRadio = document.querySelector('input[name="frame-opt"]:checked');
+  return activeRadio ? activeRadio.value : 'none';
 }
 
 function showSaving(on){document.getElementById('saving-overlay').classList.toggle('hidden',!on);}
@@ -532,11 +490,25 @@ function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onloa
 
 async function capture(){
   if(S.saving||!S.ready)return;
+  
+  // Ha a Dupla Expozíció aktív és ez az ELSŐ lövés (Stage 0)
+  if(S.deActive && S.deStage === 0) {
+    S.deStage = 1;
+    document.getElementById('hud-focus-label').textContent = 'DE 2/2';
+    document.getElementById('shutter').classList.add('de-primed');
+    
+    // Elmentjük az aktuális nyers videó kockát a háttér másodlagos puffer textúrájába (detex)
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, detex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid);
+    return; // Megszakítjuk a fizikai fájlmentést, várjuk a második lövést
+  }
+
   S.saving=true;showSaving(true);
   await new Promise(r=>setTimeout(r,10));
 
   const OUT=1080;
-  const frame=document.getElementById('frame-sel').value;
+  const frame = getSelectedFrame();
   let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
   if(frame==='antik'){
@@ -565,6 +537,18 @@ async function capture(){
     gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
     gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
     gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
+    
+    // Sütési fázis: kikapcsoljuk az onion-skin elonezetet, kiküldjük a teljes blend fúziót a koordinátákra
+    if(S.deActive && S.deStage === 1) {
+      gl.uniform1f(U.u_de_active, 1.0);
+      gl.uniform1f(U.u_de_preview, 0.0); // 0.0 = Fizikai fénysorolás lefutása a shaderek között
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, detex);
+    } else {
+      gl.uniform1f(U.u_de_active, 0.0);
+      gl.uniform1f(U.u_de_preview, 0.0);
+    }
+    
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }
   const glW=glCv.width,glH=glCv.height;
@@ -594,6 +578,7 @@ async function capture(){
     sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
   }
 
+  // Dátum rásütés
   if(document.getElementById('date-tog').checked){
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -611,19 +596,6 @@ async function capture(){
     sCtx.fillText('by Analogia',photoX+photoS-Math.round(OUT*.02),ch-Math.round((ch-photoY-photoS)/2+fs*.3));
   }
 
-  /* Ultra-gyors dedikált hardveres lekicsinyítés (240px) a mentési fagyás megszüntetésére */
-  try {
-    const thumbCanvas = document.createElement('canvas');
-    thumbCanvas.width = 240; thumbCanvas.height = 240;
-    const tCtx = thumbCanvas.getContext('2d');
-    tCtx.drawImage(sv, 0, 0, 240, 240);
-    const albumDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.75);
-    S.gallery.push(albumDataUrl);
-    if (S.gallery.length > 24) S.gallery.shift();
-    localStorage.setItem('analogia_album_data', JSON.stringify(S.gallery));
-    syncThumbUI();
-  } catch(_) {}
-
   sv.toBlob(blob=>{
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
@@ -637,6 +609,13 @@ async function capture(){
     pi.src=url;pi.setAttribute('data-filename',fname);
     document.getElementById('photo-overlay').classList.remove('hidden');
     lockOverlayZoom();
+    
+    // Sikeres mentés után lezárjuk a Dupla expozíciós fázist, és visszaállunk alapállapotba
+    if(S.deActive) {
+      S.deStage = 0;
+      document.getElementById('shutter').classList.remove('de-primed');
+      document.getElementById('hud-focus-label').textContent = 'AF';
+    }
     S.saving=false;
   },'image/jpeg',.92);
 }
@@ -729,14 +708,6 @@ function unlockOverlayZoom() {
   overlay.style.touchAction = '';
 }
 
-function lockLightboxZoom() {
-  const lb = document.getElementById('gallery-lightbox');
-  lb.style.touchAction = 'none';
-  lb.addEventListener('gesturestart', _pzPreventNative, { passive: false });
-  lb.addEventListener('gesturechange', _pzPreventNative, { passive: false });
-  lb.addEventListener('touchmove', _pzPreventNative, { passive: false });
-}
-
 /* ── Events ── */
 document.getElementById('perm-btn').addEventListener('click',() => initCam());
 document.getElementById('shutter').addEventListener('click',capture);
@@ -748,14 +719,8 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
   });
 });
 
+document.getElementById('de-toggle-btn').addEventListener('click', toggleDoubleExposure);
 document.getElementById('cam-toggle-btn').addEventListener('click', cycleCamera);
-document.getElementById('thumb-btn').addEventListener('click', openGalleryModal);
-document.getElementById('gallery-close').addEventListener('click', closeGalleryModal);
-document.getElementById('gallery-backdrop').addEventListener('click', closeGalleryModal);
-
-document.getElementById('gallery-lightbox').addEventListener('click', () => {
-  document.getElementById('gallery-lightbox').classList.add('hidden');
-});
 
 document.getElementById('exit-btn').addEventListener('click', () => {
   if (document.fullscreenElement) {
@@ -822,8 +787,6 @@ document.addEventListener('touchmove', e => {
   });
 
   buildDial();syncDial();uploadLUT(PROF['kodachrome'].lut);
-  initAlbumStorage();
-  lockLightboxZoom();
   await tryLoadLuts();
   await listVideoDevices();
   if(navigator.mediaDevices?.getUserMedia) initCam();
