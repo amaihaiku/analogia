@@ -211,7 +211,5 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .photo-overlay-hint span{font-size:12px;letter-spacing:.1em;color:var(--gold)}
 .photo-preview-img{width:100%;max-width:400px;border:2px solid var(--gold-dim);display:block;touch-action:auto;-webkit-touch-callout:default;-webkit-user-drag:auto;user-select:auto;-webkit-user-select:auto;will-change:transform;transform-origin:center center;pointer-events:auto}
 .photo-overlay-actions{display:flex;flex-direction:column;gap:8px;width:100%;max-width:400px}
-.photo-overlay-save{font-family:var(--font);font-size:12px;letter-spacing:.14em;color:var(--bg);background:var(--gold);border:none;padding:13px;cursor:pointer;border-radius:2px;font-weight:500}
-.photo-overlay-save:active{filter:brightness(.9)}
 .photo-overlay-close{font-family:var(--font);font-size:11px;letter-spacing:.16em;color:var(--muted);background:var(--metal2);border:1px solid var(--dim);padding:10px 28px;pointer-events:auto;cursor:pointer}
 .photo-overlay-close:active{background:var(--metal)}

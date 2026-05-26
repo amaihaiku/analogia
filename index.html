@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="style.css?v=19"/>
+<link rel="stylesheet" href="style.css?v=20"/>
 </head>
 <body>
 
@@ -43,7 +43,6 @@
     </div>
     <img id="photo-preview-img" class="photo-preview-img" alt="Fotó előnézet"/>
     <div class="photo-overlay-actions">
-      <button class="photo-overlay-save" id="photo-save-btn"><b>⬇ MENTÉS / LETÖLTÉS</b></button>
       <button class="photo-overlay-close" id="photo-overlay-close">BEZÁRÁS</button>
     </div>
   </div>
@@ -178,10 +177,10 @@
 
 <video id="vid" playsinline autoplay muted style="display:none"></video>
 <canvas id="save-canvas" style="display:none"></canvas>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 <script>
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=19');
+    navigator.serviceWorker.register('./sw.js?v=20');
   }
 </script>
 </body>

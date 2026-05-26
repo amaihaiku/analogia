@@ -1,7 +1,7 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v19
-   Változások v19: valódi por+karc FX (fényerő-emelés nélkül),
+   ANALOGIA — app.js v20
+   Változások v20: valódi por+karc FX (fényerő-emelés nélkül),
    vaku időzítés javítva (megvilágított frame bevárása rVFC-vel),
    torch-képesség ellenőrzés, antik dátum normál font + kisebb,
    DE/FX gombfelirat arany, WYSIWYG film-dátum igazítás.
@@ -79,7 +79,7 @@ async function loadExternalFilters() {
   const promises = AVAILABLE_FILTERS.map(id => {
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = `filters/${id}.js?v=19`;
+      script.src = `filters/${id}.js?v=20`;
       script.onload = resolve;
       script.onerror = resolve; 
       document.head.appendChild(script);
@@ -206,23 +206,21 @@ void main(){
       col = mix(col, vec3(0.85), lMask * 0.4); // halvány világos pont
     }
 
-    // --- Karc: max 1-2 az egész képen, döntött, hullámzó, szaggatott, halvány ---
-    // 24 lehetséges sáv, ebből csak nagyon kevés aktív
+    // --- Karc: 2-4 az egész képen, döntött, hullámzó, szaggatott, halvány ---
     float sBand = floor(fuv.x * 24.0);
     float sActive = h2(vec2(sBand, floor(seed * 13.0) + 0.5));
-    if (sActive > 0.92) {
+    if (sActive > 0.85) {
       // a karc nem függőleges: y-tól függő vízszintes eltolás (dőlés + hullám)
       float wobble = (sn(vec2(sBand * 3.1, fuv.y * 4.0 + seed * 2.0)) - 0.5) * 0.06;
       float bandCenter = (sBand + 0.5) / 24.0 + wobble;
       float dx = abs(fuv.x - bandCenter);
       // szaggatottság függőlegesen
-      float seg = sn(vec2(sBand * 2.0 + seed * 5.0, fuv.y * 8.0));
-      float thickness = 0.0012 + h2(vec2(sBand, 3.0)) * 0.001;
-      if (dx < thickness && seg > 0.5) {
-        float scratchTone = h2(vec2(sBand, 8.0)) > 0.5 ? 0.8 : 0.1;
-        // halvány overlay-keverés, lágy él
-        float sMask = (1.0 - smoothstep(thickness * 0.5, thickness, dx)) * (seg - 0.5) * 2.0;
-        col = mix(col, vec3(scratchTone), sMask * 0.3);
+      float seg = sn(vec2(sBand * 2.0 + seed * 5.0, fuv.y * 7.0));
+      float thickness = 0.0014 + h2(vec2(sBand, 3.0)) * 0.0012;
+      if (dx < thickness && seg > 0.42) {
+        float scratchTone = h2(vec2(sBand, 8.0)) > 0.5 ? 0.85 : 0.05;
+        float sMask = (1.0 - smoothstep(thickness * 0.4, thickness, dx)) * smoothstep(0.42, 0.7, seg);
+        col = mix(col, vec3(scratchTone), sMask * 0.5);
       }
     }
   }
@@ -542,7 +540,7 @@ function updateLiveDate() {
   
   if (frame === 'antik') {
     el.textContent = getRetroDateString();
-    el.style.bottom = '28px'; // Kicsit lejjebb (korábban túl magas volt)
+    el.style.bottom = '3.5%'; // Százalékos, hogy egyezzen a mentett kép keret-sávjával
     el.style.left = '0';
     el.style.right = '0';
     el.style.width = '100%';
@@ -550,7 +548,7 @@ function updateLiveDate() {
     el.style.color = '#2a2a2a'; // Nagyon sötétszürke Serif font
     el.style.fontFamily = 'Georgia, serif';
     el.style.fontWeight = 'normal'; // Antik kerethez normál (nem bold) súly
-    el.style.fontSize = '10px'; // Kisebb Serif betűméret
+    el.style.fontSize = '11px'; // Kisebb Serif betűméret
   } else {
     const now = new Date(), p = n => String(n).padStart(2, '0');
     el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -777,12 +775,7 @@ async function capture(){
         const afs = Math.max(16, photoS*.030|0);
         sCtx.font=`normal ${afs}px Georgia, serif`; sCtx.textAlign='center'; sCtx.textBaseline='alphabetic';
         const tx = cw / 2;
-        // A keret világos alsó passe-partout sávjára, ugyanúgy mint az élőképen.
-        const ty = ch - Math.round(OUT * 0.045);
-        // Finom világos alátét, hogy bármilyen háttéren (keret vagy fotószél) olvasható legyen
-        const tw = sCtx.measureText(ds).width;
-        sCtx.fillStyle = 'rgba(238,232,220,0.55)';
-        sCtx.fillRect(tx - tw/2 - 10, ty - afs, tw + 20, afs * 1.35);
+        const ty = ch - Math.round(OUT * 0.035); // egyezik az élőkép 3.5%-ával
         sCtx.fillStyle = '#2a2a2a';
         sCtx.fillText(ds, tx, ty);
       } else {
@@ -822,6 +815,8 @@ async function capture(){
       const photoOverlay = document.getElementById('photo-overlay');
       if (previewImg && photoOverlay) {
         previewImg.src = url;
+        previewImg.alt = fname;
+        previewImg.setAttribute('data-filename', fname);
         photoOverlay.classList.remove('hidden');
       }
       
@@ -935,21 +930,8 @@ if (dateTogEl) {
   dateTogEl.addEventListener('change', updateLiveDate);
 }
 
-const photoSaveBtn = document.getElementById('photo-save-btn');
-if (photoSaveBtn) {
-  photoSaveBtn.onclick = () => {
-    if (!activeBlobUrl) return;
-    const a = document.createElement('a');
-    a.href = activeBlobUrl;
-    a.download = activeFilename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    
-    const photoOverlay = document.getElementById('photo-overlay');
-    if (photoOverlay) photoOverlay.classList.add('hidden');
-  };
-}
+// A fotó mentése hosszú-nyomással történik (natív "Kép mentése"), nincs letöltés gomb,
+// így nincs böngésző letöltési értesítés.
 
 const photoCloseBtn = document.getElementById('photo-overlay-close');
 if (photoCloseBtn) {
