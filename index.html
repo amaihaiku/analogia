@@ -36,6 +36,20 @@
   </div>
 </div>
 
+<div id="photo-overlay" class="photo-overlay hidden">
+  <div class="photo-overlay-bg" id="photo-overlay-bg"></div>
+  <div class="photo-overlay-content">
+    <div class="photo-overlay-hint">
+      <span>📥 Tartsd lenyomva a képet a mentéshez</span>
+    </div>
+    <img id="photo-preview-img" class="photo-preview-img" alt="Fotó előnézet"/>
+    <div class="photo-overlay-actions">
+      <button class="photo-overlay-save" id="photo-save-btn">⬇ MENTÉS / LETÖLTÉS</button>
+      <button class="photo-overlay-close" id="photo-overlay-close">BEZÁRÁS</button>
+    </div>
+  </div>
+</div>
+
 <div id="film-modal" class="modal hidden">
   <div class="modal-backdrop" id="modal-backdrop"></div>
   <div class="modal-box">
@@ -60,7 +74,7 @@
       <span class="model">RF-1</span>
     </div>
     <button class="film-btn" id="film-btn">
-      <span class="film-btn-label" id="film-label">KODACHROME 64</span>
+      <span class="film-btn-label" id="film-label">BETÖLTÉS...</span>
       <span class="film-btn-arrow">▾</span>
     </button>
     <div class="hud-right">
@@ -155,11 +169,7 @@
 <script src="app.js?v=16"></script>
 <script>
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-      for (let registration of registrations) {
-        registration.unregister();
-      }
-    });
+    navigator.serviceWorker.register('./sw.js?v=16');
   }
 </script>
 </body>

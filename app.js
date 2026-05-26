@@ -1,10 +1,13 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v16 (True WYSIWYG & Standalone Guard)
-   Features: Linear light fusions, mechanical shutter blink,
-   forced sandbox security check, cache busting matrices,
-   automatic background downloads like native iOS.
+   ANALOGIA — app.js v16 (Modular WYSIWYG Double Exposure Update)
+   Features: Dynamic external folder-based injection arrays,
+   iOS hardware shutter sync, mandatory WebGL unit 2 texture
+   completeness binder, standalone installation routing.
 ═══════════════════════════════════════ */
+
+// IDE ÍRD BE AZ ÚJONNAN LÉTREHOZOTT SZŰRŐFÁJLOK NEVÉT A FILTERS/ MAPPA ALATT:
+const AVAILABLE_FILTERS = ['kodachrome', 'kodak_portra', 'fuji_velvia', 'cinestill', 'teal_orange', 'bleach', 'cross', 'highcontrast_bw', 'l_monochrome', 'infrared'];
 
 const S={
   stream:null,raf:null,ready:false,saving:false,
@@ -22,18 +25,15 @@ let videoDevices = [];
 let currentDeviceIndex = 0;
 let deferredPrompt = null;
 
-/* ── Kezdőképernyő (Standalone Mode) Biztonsági Fal ── */
 function checkStandaloneGuard() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
   const overlay = document.getElementById('install-overlay');
   const shell = document.querySelector('.shell');
   
   if (isStandalone) {
-    // Ha már ki van rakva a főképernyőre és onnan indul: tiszta kameramód futtatása!
     if (overlay) overlay.classList.add('hidden');
     if (shell) shell.style.display = 'flex';
   } else {
-    // Ha sima böngészőből nyitják meg: elrejtjük a kamerát, kényszerítjük a telepítést!
     if (shell) shell.style.display = 'none';
     if (overlay) overlay.classList.remove('hidden');
   }
@@ -44,8 +44,6 @@ window.addEventListener('beforeinstallprompt', (e) => {
   deferredPrompt = e;
 });
 
-/* ── Film profiles ── */
-function scv(x,p,c){const t=x-p;return t/Math.sqrt(1+(c*t)*(c*t))+p;}
 function cl(v){return Math.max(0,Math.min(1,v));}
 function bake(fn){
   const N=33,lut=new Float32Array(N*N*N*3);
@@ -56,92 +54,30 @@ function bake(fn){
   return{d:lut,sz:N};
 }
 
-const PD={
-  kodachrome:{name:'KODACHROME 64',sub:'Rich contrast · Warm reds · Cyan shadows',fn(r,g,b){
-    let rn=scv(r,.55,1.6),gn=scv(g,.5,1.5),bn=scv(b,.48,1.45);
-    const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*2.5);
-    rn+=l*.08;gn-=l*.02;bn+=s*.07-l*.04;gn-=s*.04;
-    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.25,a+(gn-a)*1.1,a+(bn-a)*1.15];}},
-    
-  kodak_portra:{name:'KODAK PORTRA 400',sub:'Natural skin · Pastel palette',fn(r,g,b){
-    let rn=scv(r,.48,1.2),gn=scv(g,.5,1.15),bn=scv(b,.52,1.1);
-    const l=.299*rn+.587*gn+.114*bn;rn+=l*.05;gn+=l*.02;bn-=l*.02;
-    const a=(rn+gn+bn)/3;return[a+(rn-a)*.85,a+(gn-a)*.88,a+(bn-a)*.82];}},
-    
-  fuji_velvia:{name:'FUJI VELVIA 50',sub:'Ultra saturated · Deep shadows · Vivid',fn(r,g,b){
-    let rn=scv(r,.5,2.2),gn=scv(g,.5,2.0),bn=scv(b,.5,1.9);
-    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.5+.02,a+(gn-a)*1.45,a+(bn-a)*1.4-.02];}},
-    
-  cinestill:{name:'CINESTILL 800T',sub:'Tungsten · Halation · Cinematic blue',fn(r,g,b){
-    let rn=scv(r*.85,.5,1.4),gn=scv(g*.92,.5,1.3),bn=scv(b+.05,.5,1.25);
-    const l=.299*rn+.587*gn+.114*bn,s=Math.max(0,1-l*2.8),h_orig=Math.max(0,l*3-2);
-    let rout=rn+s*.04+h_orig*.08, gout=gn+s*.02-h_orig*.04, bout=bn+s*.10;
-    if(l>0.85){
-      const t=Math.max(0,Math.min(1,(l-0.85)/0.15));
-      const h=t*t*(3-2*t);
-      rout+=0.15*h;
-      bout-=0.04*h;
-    }
-    rout+=Math.max(0,l-0.85)*1.2;
-    bout-=Math.max(0,l-0.85)*0.4;
-    return[rout,gout,bout];}},
-    
-  teal_orange:{name:'TEAL & ORANGE',sub:'Hollywood grade · Skin warmth · Teal shadows',fn(r,g,b){
-    const l=.299*r+.587*g+.114*b,s=Math.max(0,1-l*2.5),h=Math.max(0,l*2-1),m=1-s-h;
-    let rn=r-s*.18+h*.12+m*.04,gn=g+s*.06+h*.04,bn=b+s*.14-h*.16-m*.03;
-    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.3,a+(gn-a)*1.1,a+(bn-a)*1.25];}},
-    
-  bleach:{name:'BLEACH BYPASS',sub:'Silver retention · High contrast · Desaturated',fn(r,g,b){
-    const l=.299*r+.587*g+.114*b,lc=scv(l,.5,2.2),s=Math.max(0,1-l*3);
-    return[r*.4+lc*.6,g*.4+lc*.6+s*.03,b*.4+lc*.6+s*.05];}},
-    
-  cross:{name:'CROSS PROCESS',sub:'High saturation · Shifted hues',fn(r,g,b){
-    let rn=scv(r,.4,2.5),gn=scv(g,.5,2.2),bn=scv(b,.6,2.0);
-    const a=(rn+gn+bn)/3;return[a+(rn-a)*1.8+.04,a+(gn-a)*1.5+.02,a+(bn-a)*1.6-.05];}},
-    
-  highcontrast_bw:{name:'HIGH CONTRAST',sub:'Crushed blacks · Clean whites · Graphic',fn(r,g,b){
-    let l=0.25*r+0.65*g+0.10*b;
-    l=scv(l,0.42,3.5);
-    if(l<0.25)l*=0.6;
-    if(l>0.75)l=0.75+(l-0.75)*1.3;
-    return[l,l,l];}},
-    
-  l_monochrome:{name:'L-MONOCHROME',sub:'Leica rendering · Rich midtones · Airy',fn(r,g,b){
-    let l=0.30*r+0.59*g+0.11*b;
-    l=scv(l,0.50,1.1);
-    const t=1-Math.abs(l-0.5)*2;l+=t*0.04;
-    if(l<0.3)l=l*0.88+0.035;
-    if(l>0.88)l=0.88+(l-0.88)*0.4;
-    return[l,l,l];}},
-    
-  infrared:{name:'INFRARED',sub:'Green becomes white · Sky darkens · Dramatic',fn(r,g,b){
-    let l=0.05*r+0.88*g+0.07*b;
-    l=scv(l,0.45,2.2);
-    l-=b*0.08;
-    l=Math.max(0,Math.min(1,l));
-    let rout=l+Math.max(0,l-0.7)*0.12;
-    let gout=l+Math.max(0,l-0.7)*0.04;
-    let bout=l-Math.max(0,l-0.7)*0.08;
-    return[rout,gout,bout];}}
-};
-
 const PROF={};
-for(const[k,d]of Object.entries(PD))PROF[k]={name:d.name,sub:d.sub,lut:bake(d.fn)};
 const XLUTS={};
 
-/* ── Cube parser ── */
-function parseCube(txt){
-  const lines=txt.split('\n');let sz=33;const e=[];
-  for(let ln of lines){
-    ln=ln.trim();
-    if(!ln||ln[0]==='#'||ln.startsWith('TITLE'))continue;
-    if(ln.startsWith('LUT_3D_SIZE')){sz=+ln.split(/\s+/)[1];continue;}
-    if(ln.startsWith('DOMAIN_')||ln.startsWith('LUT_'))continue;
-    const p=ln.split(/\s+/).map(Number);
-    if(p.length===3&&!p.some(isNaN))e.push(p[0],p[1],p[2]);
+async function loadExternalFilters() {
+  const promises = AVAILABLE_FILTERS.map(id => {
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = `filters/${id}.js?v=16`;
+      script.onload = resolve;
+      script.onerror = resolve; 
+      document.head.appendChild(script);
+    });
+  });
+  await Promise.all(promises);
+  
+  for (const id of AVAILABLE_FILTERS) {
+    if (window.PD && window.PD[id]) {
+      PROF[id] = {
+        name: window.PD[id].name,
+        sub: window.PD[id].sub,
+        lut: bake(window.PD[id].fn)
+      };
+    }
   }
-  if(e.length!==sz*sz*sz*3)throw new Error(`CUBE: ${e.length}/${sz*sz*sz*3}`);
-  return{d:new Float32Array(e),sz};
 }
 
 /* ── WebGL WYSIWYG Shader Engine ── */
@@ -182,8 +118,8 @@ float fbm(vec2 u){return sn(u)*.5+sn(u*2.)*.25+sn(u*4.)*.125;}
 float gc(float l){float t=1.-abs(l-.5)*2.;return t*t*(3.-2.*t);}
 
 void main(){
-  vec2 vuv=cropUV(v_uv);
-  if(any(lessThan(vuv,vec2(0.)))||any(greaterThan(vuv,vec2(1.)))){gl_FragColor=vec4(0.,0.,0.,1.);return;}
+  vec2 vuv = cropUV(v_uv);
+  vuv = clamp(vuv, 0.0, 1.0); // BIZTONSÁGI FIX: elkerüli az UV túlcsordulásos fekete képernyőt
   
   vec3 srgbIn = texture2D(u_vid_tex,vuv).rgb;
   vec3 linA = pow(srgbIn, vec3(2.2)) * u_ev;
@@ -246,7 +182,7 @@ function initGL(){
   return true;
 }
 function mkS(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
-function mkT(){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);return t;}
+function mkT(){const t=t||gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);return t;}
 
 function uploadLUT(ld){
   const{d,sz}=ld,W=sz*sz,rgba=new Uint8Array(W*sz*4);
@@ -258,8 +194,6 @@ function uploadLUT(ld){
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,W,sz,0,gl.RGBA,gl.UNSIGNED_BYTE,rgba);
   gl.uniform1f(U.u_lut_sz,sz);
 }
-
-const vid=document.getElementById('vid');
 
 function render(){
   S.raf=requestAnimationFrame(render);
@@ -282,13 +216,10 @@ function render(){
   gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
   
-  if(S.deActive && S.deStage === 1) {
-    gl.uniform1f(U.u_de_active, 1.0);
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, detex);
-  } else {
-    gl.uniform1f(U.u_de_active, 0.0);
-  }
+  // SAFARI FIX: Mindig csatoljuk a TEXTURE2 egységet, különben az unbound textúra miatt a Safari lefagyasztja a rajzolást!
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, (S.deActive && S.deStage === 1) ? detex : vtex);
+  gl.uniform1f(U.u_de_active, (S.deActive && S.deStage === 1) ? 1.0 : 0.0);
   
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
@@ -427,21 +358,8 @@ async function triggerVfFocus(e) {
   setTimeout(() => document.getElementById('hud-focus-label').textContent = 'AF', 2000);
 }
 
-/* ── Landscape warning ── */
-function chkOrientation(){document.getElementById('rotate-overlay').classList.toggle('hidden',!window.matchMedia('(orientation:landscape)').matches);}
-window.addEventListener('resize',()=>{chkOrientation();const dw=document.getElementById('dial-wrap'),cl=document.querySelector('.dial-center-h');if(dw&&cl)cl.style.left=dw.clientWidth/2+'px';});
-window.matchMedia('(orientation:landscape)').addEventListener('change',chkOrientation);
-chkOrientation();
+function tryLoadLuts(){ return Promise.resolve(); }
 
-/* ── Film modal ── */
-async function tryLoadLuts(){
-  try{
-    const r=await fetch('luts/index.json');if(!r.ok)return;
-    for(const e of((await r.json()).luts||[])){
-      try{const r2=await fetch(`luts/${e.file}`);if(!r2.ok)continue;const lut=parseCube(await r2.text());XLUTS[e.file]={d:lut.d,sz:lut.sz,name:e.name||e.file,sub:e.sub||'Custom LUT'};}catch(_){}
-    }
-  }catch(_){}
-}
 function buildFilmList(){
   const list=document.getElementById('film-list');list.innerHTML='';
   for(const[k,p]of Object.entries(PROF)){
@@ -450,25 +368,13 @@ function buildFilmList(){
     it.onclick=()=>{S.simKey=k;S.cpuLut=null;uploadLUT(p.lut);document.getElementById('film-label').textContent=p.name;closeModal();};
     list.appendChild(it);
   }
-  for(const[fn,lut]of Object.entries(XLUTS)){
-    const it=document.createElement('div');it.className='film-item';
-    it.innerHTML=`<div class="film-dot"></div><div><div class="film-name">${lut.name}</div><div class="film-sub">${lut.sub}</div></div>`;
-    it.onclick=()=>{S.simKey='__lut__';S.cpuLut=lut;uploadLUT(lut);document.getElementById('film-label').textContent=lut.name;closeModal();};
-    list.appendChild(it);
-  }
 }
 function openModal(){buildFilmList();document.getElementById('film-modal').classList.remove('hidden');}
 function closeModal(){document.getElementById('film-modal').classList.add('hidden');}
 document.getElementById('film-btn').addEventListener('click',openModal);
 document.getElementById('modal-close').addEventListener('click',closeModal);
 document.getElementById('modal-backdrop').addEventListener('click',closeModal);
-document.getElementById('lut-upload').addEventListener('change',async e=>{
-  const f=e.target.files[0];if(!f)return;
-  try{const lut=parseCube(await f.text());const name=f.name.replace('.cube','').replace(/_/g,' ').toUpperCase();XLUTS[f.name]={d:lut.d,sz:lut.sz,name,sub:'Egyéni LUT · .cube'};S.simKey='__lut__';S.cpuLut=XLUTS[f.name];uploadLUT(lut);document.getElementById('film-label').textContent=name;closeModal();}
-  catch(err){alert('LUT hiba: '+err.message);}e.target.value='';
-});
 
-/* ── DOUBLE EXPOSURE INTERACTION CONTROLLER ── */
 function toggleDoubleExposure() {
   S.deActive = !S.deActive;
   S.deStage = 0;
@@ -479,28 +385,22 @@ function toggleDoubleExposure() {
   document.getElementById('hud-focus-label').textContent = 'AF';
 }
 
-/* ── CAPTURE ── */
 function getSelectedFrame() {
   const activeRadio = document.querySelector('input[name="frame-opt"]:checked');
   return activeRadio ? activeRadio.value : 'none';
 }
 
-/* BLENDE ANIMÁCIÓ CONTROLLER (iOS REDŐNYZÁR MÁSOLAT) */
 function triggerMechanicalShutter(callback) {
   const blink = document.getElementById('shutter-blink');
   if(!blink) return callback();
-  
   blink.classList.remove('hidden', 'open');
   blink.getBoundingClientRect(); 
   blink.classList.add('active'); 
-  
   setTimeout(() => {
     callback(); 
-    
     setTimeout(() => {
       blink.classList.add('open');
       blink.classList.remove('active');
-      
       setTimeout(() => {
         blink.classList.add('hidden');
         blink.classList.remove('open');
@@ -526,7 +426,6 @@ async function capture(){
     return; 
   }
 
-  // Zársebességi blende animáció indítása
   triggerMechanicalShutter(async () => {
     S.saving=true;
     const OUT=1080;
@@ -613,7 +512,6 @@ async function capture(){
       sCtx.fillText('by Analogia',photoX+photoS-Math.round(OUT*.02),ch-Math.round((ch-photoY-photoS)/2+fs*.3));
     }
 
-    /* PRÉMIUM FIX: Teljesen elnyomjuk a külső felugró Lightbox ablakot. A blende lecsengése után a kész kép automatikusan letöltődik a háttérben (mint az iOS-en), így egy tizedmásodpercre sem akad meg a folyamatos fotózás! */
     sv.toBlob(blob=>{
       const now=new Date(),p=n=>String(n).padStart(2,'0');
       const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
@@ -651,7 +549,6 @@ function drawFilm(c,W,H,sh){
   });
 }
 
-/* ── Hardveres sávváltó ── */
 async function listVideoDevices() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -662,35 +559,23 @@ async function listVideoDevices() {
 async function cycleCamera() {
   if (videoDevices.length <= 1) await listVideoDevices();
   if (videoDevices.length <= 1) return;
-  
   currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
   const nextDevice = videoDevices[currentDeviceIndex];
-  if (nextDevice) {
-    await initCam(nextDevice.deviceId);
-  }
+  if (nextDevice) await initCam(nextDevice.deviceId);
 }
 
 async function initCam(preferredDeviceId = null){
-  if(S.stream) {
-    S.stream.getTracks().forEach(track => track.stop());
-  }
+  if(S.stream) S.stream.getTracks().forEach(track => track.stop());
   try{
-    const constraints = {
-      audio:false,
-      video:{ width:{ideal:1920}, height:{ideal:1920} }
-    };
-    if (preferredDeviceId) {
-      constraints.video.deviceId = { exact: preferredDeviceId };
-    } else {
-      constraints.video.facingMode = { ideal: 'environment' };
-    }
+    const constraints = { audio:false, video:{ width:{ideal:1920}, height:{ideal:1920} } };
+    if (preferredDeviceId) constraints.video.deviceId = { exact: preferredDeviceId };
+    else constraints.video.facingMode = { ideal: 'environment' };
 
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     S.stream=stream;vid.srcObject=stream;
     vid.addEventListener('loadedmetadata',()=>{
       S.ready=true;
       const tk=stream.getVideoTracks()[0],st=tk.getSettings();
-      
       if(videoDevices.length === 0) {
         listVideoDevices().then(() => {
           currentDeviceIndex = videoDevices.findIndex(d => d.deviceId === st.deviceId);
@@ -700,7 +585,6 @@ async function initCam(preferredDeviceId = null){
         currentDeviceIndex = videoDevices.findIndex(d => d.deviceId === st.deviceId);
         if(currentDeviceIndex === -1) currentDeviceIndex = 0;
       }
-
       S.vidW=st.width||vid.videoWidth;S.vidH=st.height||vid.videoHeight;
       vid.play().catch(()=>{});
       document.getElementById('hud-res').textContent=S.vidW+'×'+S.vidH;
@@ -713,23 +597,6 @@ async function initCam(preferredDeviceId = null){
   }
 }
 
-function _pzPreventNative(e) { e.preventDefault(); }
-function lockOverlayZoom() {
-  const overlay = document.getElementById('photo-overlay');
-  overlay.style.touchAction = 'none';
-  overlay.addEventListener('gesturestart', _pzPreventNative, { passive: false });
-  overlay.addEventListener('gesturechange', _pzPreventNative, { passive: false });
-  overlay.addEventListener('touchmove', _pzPreventNative, { passive: false });
-}
-function unlockOverlayZoom() {
-  const overlay = document.getElementById('photo-overlay');
-  overlay.removeEventListener('gesturestart', _pzPreventNative);
-  overlay.removeEventListener('gesturechange', _pzPreventNative);
-  overlay.removeEventListener('touchmove', _pzPreventNative);
-  overlay.style.touchAction = '';
-}
-
-/* ── Events ── */
 document.getElementById('perm-btn').addEventListener('click',() => initCam());
 document.getElementById('shutter').addEventListener('click',capture);
 
@@ -743,20 +610,14 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
 document.getElementById('de-toggle-btn').addEventListener('click', toggleDoubleExposure);
 document.getElementById('cam-toggle-btn').addEventListener('click', cycleCamera);
 
-/* NATIVE OPERATING REDIRECT FOR INSTALL SELECTION BUTTONS */
 document.getElementById('native-install-btn').addEventListener('click', async () => {
   if (deferredPrompt) {
     deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
     deferredPrompt = null;
-    window.close();
   } else {
     const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (isiOS) {
-      alert("iOS eszközön: Kattintson a Safari alján lévő 'Megosztás' gombra, majd válaszd a 'Hozzáadás a kezdőképernyőhöz' opciót!");
-    } else {
-      alert("A böngésző még nem készítette elő a telepítést. Kérjük, használja a böngésző jobb felső menüjében a 'Telepítés' vagy 'Hozzáadás a főképernyőhöz' opciót!");
-    }
+    if (isiOS) alert("iOS-en: Kattints a Safari alsó Megosztás gombjára, majd a 'Hozzáadás a kezdőképernyőhöz' opcióra!");
+    else alert("Kérjük, használd a böngésző menüjének 'Telepítés' vagy 'Hozzáadás a főképernyőhöz' pontját!");
   }
 });
 
@@ -777,44 +638,14 @@ document.getElementById('exit-btn').addEventListener('click', () => {
   }
 });
 
-document.getElementById('photo-overlay-bg').addEventListener('click',()=>{
-  unlockOverlayZoom();
-  document.getElementById('photo-overlay').classList.add('hidden');
-  const img=document.getElementById('photo-preview-img');
-  img.src='';
-  if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
-});
-
-document.getElementById('photo-overlay-close').addEventListener('click',()=>{
-  unlockOverlayZoom();
-  document.getElementById('photo-overlay').classList.add('hidden');
-  document.getElementById('photo-preview-img').src='';
-  if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
-});
-
-document.getElementById('photo-save-btn').addEventListener('click',()=>{
-  const img=document.getElementById('photo-preview-img');
-  if(!img.src)return;
-  const a=document.createElement('a');
-  a.href=img.src;a.download=img.getAttribute('data-filename')||'Analogia.jpg';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(()=>{
-    unlockOverlayZoom();
-    document.getElementById('photo-overlay').classList.add('hidden');
-    img.src='';
-    if(S.lastPhotoUrl){URL.revokeObjectURL(S.lastPhotoUrl);S.lastPhotoUrl=null;}
-  },400);
-});
-
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('gesturechange', e => e.preventDefault());
 document.addEventListener('touchmove', e => {
   if (e.touches.length > 1) e.preventDefault();
 }, { passive: false });
 
-/* ── Boot ── */
 (async()=>{
-  checkStandaloneGuard(); // Első biztonsági ellenőrzés a betöltéskor
+  checkStandaloneGuard(); 
   if(!initGL()){document.getElementById('perm-err').textContent='WebGL nem elérhető.';return;}
   glCv.addEventListener('webglcontextlost',e=>{
     e.preventDefault();
@@ -829,8 +660,13 @@ document.addEventListener('touchmove', e => {
     if(S.stream)render();
   });
 
-  buildDial();syncDial();uploadLUT(PROF['kodachrome'].lut);
-  await tryLoadLuts();
+  buildDial();
+  await loadExternalFilters();
+  if (PROF['kodachrome']) {
+    uploadLUT(PROF['kodachrome'].lut);
+    document.getElementById('film-label').textContent = PROF['kodachrome'].name;
+  }
+  syncDial();
   await listVideoDevices();
   if(navigator.mediaDevices?.getUserMedia) initCam();
   else document.getElementById('perm-err').textContent='Kamera API nem támogatott.';
