@@ -44,10 +44,14 @@
   <div class="modal-box">
     <div class="modal-header">
       <span class="modal-title">ANALOGIA ALBUM</span>
-      <button class="modal-close" id="gallery-close">✕</button>
+      <button class="modal-close" id="gallery-close"></button>
     </div>
     <div class="gallery-grid" id="gallery-grid"></div>
   </div>
+</div>
+
+<div id="gallery-lightbox" class="gallery-lightbox hidden">
+  <img id="lightbox-img" src="" alt="Nagyított kép"/>
 </div>
 
 <div id="saving-overlay" class="saving-overlay hidden">
@@ -62,7 +66,7 @@
   <div class="modal-box">
     <div class="modal-header">
       <span class="modal-title">FILM SZIMULÁCIÓ</span>
-      <button class="modal-close" id="modal-close">✕</button>
+      <button class="modal-close" id="modal-close"></button>
     </div>
     <div class="modal-list" id="film-list"></div>
     <div class="modal-sep"></div>
@@ -134,17 +138,12 @@
         </label>
         <span class="tog-lbl">DÁTUM</span>
       </div>
-      <div class="selectors-stack">
-        <select class="frame-sel" id="frame-sel">
-          <option value="none">— Keret —</option>
-          <option value="antik">Antik</option>
-          <option value="polaroid">Polaroid</option>
-          <option value="film">Film Strip</option>
-        </select>
-        <select class="frame-sel" id="cam-sel">
-          <option value="">Kamera betöltése...</option>
-        </select>
-      </div>
+      <select class="frame-sel" id="frame-sel">
+        <option value="none">— Keret —</option>
+        <option value="antik">Antik</option>
+        <option value="polaroid">Polaroid</option>
+        <option value="film">Film Strip</option>
+      </select>
     </div>
 
     <div class="shutter-row">
@@ -152,9 +151,14 @@
         <img id="thumb-img" class="hidden" alt="Miniatűr"/>
         <div id="thumb-placeholder"></div>
       </div>
+      
       <button class="shutter" id="shutter">
         <span class="sh-ring"></span>
         <span class="sh-core"></span>
+      </button>
+
+      <button class="cam-toggle-btn" id="cam-toggle-btn" title="Kamera váltása">
+        <svg viewBox="0 0 24 24"><path d="M20 5h-3.17L15 3H9L7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-8 13c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3z"/></svg>
       </button>
     </div>
 
