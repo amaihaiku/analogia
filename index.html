@@ -17,6 +17,17 @@
 </head>
 <body>
 
+<div id="install-overlay" class="install-overlay hidden">
+  <div class="install-box">
+    <div class="install-brand">ANALOGIA</div>
+    <div class="install-model">RF-1 CAMERA SYSTEM</div>
+    <div class="install-sep"></div>
+    <p class="install-desc">Ez az alkalmazás precíziós, teljes képernyős analóg keresőmódban működik. A böngésző címsorai szétrombolják az elrendezést.</p>
+    <div class="install-instructions" id="install-instructions"></div>
+    <button id="native-install-btn" class="native-install-btn hidden">TELEPÍTÉS MOST</button>
+  </div>
+</div>
+
 <div id="rotate-overlay" class="rotate-overlay hidden">
   <div class="rotate-content">
     <div class="rotate-icon">⟳</div>
@@ -36,13 +47,6 @@
       <button class="photo-overlay-save" id="photo-save-btn">⬇ MENTÉS / LETÖLTÉS</button>
       <button class="photo-overlay-close" id="photo-overlay-close">BEZÁRÁS</button>
     </div>
-  </div>
-</div>
-
-<div id="saving-overlay" class="saving-overlay hidden">
-  <div class="saving-box">
-    <div class="saving-spinner"></div>
-    <p>Fénykép mentése…</p>
   </div>
 </div>
 
@@ -85,6 +89,12 @@
       <canvas id="gl-canvas"></canvas>
       <div class="focus-overlay" id="focus-overlay"></div>
       <div class="focus-ring hidden" id="focus-ring"></div>
+      
+      <div id="shutter-blink" class="shutter-blink hidden">
+        <div class="shutter-blade top"></div>
+        <div class="shutter-blade bottom"></div>
+      </div>
+
       <div class="vf-hud">
         <div class="hud-row"><span class="hud-val" id="hud-mode-val">±0.0 EV</span><span class="hud-dim" id="hud-focus-label">AF</span></div>
         <div class="hud-row"><span class="hud-dim" id="hud-res">—</span><span class="hud-dim" id="hud-mode-name">EXPOSURE</span></div>
@@ -159,10 +169,10 @@
 <script src="app.js?v=15"></script>
 <script>
   if ('serviceWorker' in navigator) {
-    navigator.mediaDevices.enumerateDevices().then(() => {
-      navigator.serviceWorker.getRegistrations().then(regs => {
-        for (let r of regs) r.unregister();
-      });
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+      for (let registration of registrations) {
+        registration.unregister();
+      }
     });
   }
 </script>

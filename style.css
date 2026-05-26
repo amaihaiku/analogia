@@ -7,6 +7,18 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased;user-select:none}
 
+/* PWA FORCED RETRO INSTALL OVERLAY */
+.install-overlay{position:fixed;inset:0;z-index:11000;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px}
+.install-overlay.hidden{display:none}
+.install-box{width:100%;max-width:360px;background:var(--metal2);border:1px solid var(--gold-dim);border-radius:8px;padding:32px 24px;text-align:center;box-shadow:0 12px 36px rgba(0,0,0,0.8)}
+.install-brand{font-family:var(--display);font-size:36px;letter-spacing:0.15em;color:var(--gold);line-height:1}
+.install-model{font-size:9px;letter-spacing:0.25em;color:var(--muted);margin-top:4px}
+.install-sep{height:1px;background:var(--dim);margin:20px 0}
+.install-desc{font-size:12px;line-height:1.6;color:var(--text);margin-bottom:24px;letter-spacing:0.02em}
+.install-step{font-size:12px;background:var(--bg);border:1px solid var(--dim);padding:14px;border-radius:4px;color:var(--gold);line-height:1.5;letter-spacing:0.04em}
+.native-install-btn{width:100%;font-family:var(--font);font-size:12px;font-weight:bold;letter-spacing:0.12em;background:var(--gold);color:var(--bg);border:none;padding:14px;border-radius:4px;cursor:pointer;box-shadow:0 4px 10px rgba(0,0,0,0.3)}
+.native-install-btn:active{filter:brightness(0.9)}
+
 /* ROTATE */
 .rotate-overlay{position:fixed;inset:0;z-index:9999;background:#000;display:flex;align-items:center;justify-content:center}
 .rotate-overlay.hidden{display:none}
@@ -16,7 +28,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .rotate-title{font-family:var(--display);font-size:22px;letter-spacing:.2em;color:var(--gold)}
 .rotate-overlay small{font-size:11px;letter-spacing:.1em;color:var(--muted)}
 
-/* SAVING */
+/* SAVING OVERLAY (USED ONLY DURING RE-INITIALIZATION) */
 .saving-overlay{position:fixed;inset:0;z-index:8000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.65);backdrop-filter:blur(8px)}
 .saving-overlay.hidden{display:none}
 .saving-box{display:flex;flex-direction:column;align-items:center;gap:14px;background:var(--metal2);border:1px solid var(--gold-dim);padding:28px 40px;border-radius:6px}
@@ -32,17 +44,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .modal-title{font-family:var(--display);font-size:22px;letter-spacing:.2em;color:var(--gold)}
 
-/* HARMONIZED PREMIUM CORNER CLOSE BUTTON */
+/* HARMONIZED PREMIUM CORNER GOLD CLOSE BUTTON */
 .modal-close{
   width:32px;height:32px;border-radius:50%;
-  background:var(--bg);border:1.5px solid var(--edge);
-  color:var(--gold);cursor:pointer;padding:0;
-  display:flex;align-items:center;justify-content:center;
+  background:var(--bg);border:1.5px solid var(--gold-dim);
+  cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;
   box-shadow:0 2px 5px rgba(0,0,0,.5), 0 0 0 2px var(--metal2), 0 0 0 3px var(--edge);
   transition:transform 0.1s;
 }
 .modal-close::before{content:'✕';font-family:var(--font);font-size:12px;font-weight:bold;color:var(--gold)}
-.modal-close:active{transform:scale(0.9);}
+.modal-close:active{transform:scale(0.92)}
 
 .modal-list{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
 .film-item{display:flex;align-items:center;gap:14px;padding:11px 14px;background:var(--bg2);border:1px solid var(--edge);cursor:pointer;transition:background .1s}
@@ -71,14 +82,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .film-btn-arrow{font-size:12px;color:var(--gold-dim);flex-shrink:0;line-height:1}
 .hud-right{display:flex;align-items:center;justify-content:flex-end;height:44px;flex-shrink:0;width:44px}
 
-/* EXQUISITE EXIT BUTTON IN THE TOPBAR */
+/* HARMONIZED GOLD EXIT BUTTON IN THE TOPBAR */
 .exit-btn{
   position:relative;width:34px;height:34px;border-radius:50%;
-  background:var(--bg);border:1.5px solid var(--edge);cursor:pointer;
+  background:var(--bg);border:1.5px solid var(--gold-dim);cursor:pointer;
   display:flex;align-items:center;justify-content:center;padding:0;
   box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 0 2px var(--metal2), 0 0 0 3px var(--edge);
 }
-.exit-btn::after{content:'✕';color:var(--red);font-family:var(--font);font-size:13px;font-weight:bold}
+.exit-btn::after{content:'✕';color:var(--gold);font-family:var(--font);font-size:13px;font-weight:bold}
 .exit-btn:active{transform:scale(0.92)}
 
 /* VIEWFINDER — 1:1 square */
@@ -103,6 +114,25 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .noperm small{font-size:9px;color:var(--muted);text-align:center;line-height:1.7}
 .perm-btn{font-size:11px;letter-spacing:.12em;color:var(--bg);background:var(--gold);border:none;padding:10px 24px;cursor:pointer;margin-top:8px}
 
+/* NATIVE MECHANICAL SHUTTER CURTAIN ANIMATION ENGINE */
+.shutter-blink {
+  position:absolute;inset:0;z-index:25;
+  display:flex;flex-direction:column;pointer-events:none;
+}
+.shutter-blink.hidden {display:none}
+.shutter-blade {
+  flex:1;background:#0c0b0a;
+  box-shadow:inset 0 0 40px #000;
+  transform:translateY(0);will-change:transform;
+}
+.shutter-blade.top {transform:translateY(-100%);border-bottom:2px solid #000}
+.shutter-blade.bottom {transform:translateY(100%);border-top:2px solid #000}
+/* Snappy mechanical closure and smooth rebound */
+.shutter-blink.active .shutter-blade.top {transform:translateY(0);transition:transform 0.12s cubic-bezier(0.25, 1, 0.3, 1)}
+.shutter-blink.active .shutter-blade.bottom {transform:translateY(0);transition:transform 0.12s cubic-bezier(0.25, 1, 0.3, 1)}
+.shutter-blink.open .shutter-blade.top {transform:translateY(-100%);transition:transform 0.18s cubic-bezier(0.5, 0, 0.75, 0)}
+.shutter-blink.open .shutter-blade.bottom {transform:translateY(100%);transition:transform 0.18s cubic-bezier(0.5, 0, 0.75, 0)}
+
 /* BOTTOM — fills remaining space */
 .ctrl-bottom{flex:1;background:var(--metal);border-top:2px solid var(--edge);display:flex;flex-direction:column;min-height:0}
 
@@ -114,7 +144,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .led{width:6px;height:6px;border-radius:50%;background:var(--dim);flex-shrink:0;transition:background .15s,box-shadow .15s}
 .mode-btn.active .led{background:var(--gold);box-shadow:0 0 6px var(--gold)}
 
-/* DIAL CENTER ALIGN MATRICES */
+/* DIAL */
 .dial-h{position:relative;height:58px;overflow:hidden;border-bottom:1px solid var(--edge);background:var(--bg);touch-action:none;cursor:grab;flex-shrink:0}
 .dial-h:active{cursor:grabbing}
 .dial-track-h{position:absolute;inset:0;display:flex;align-items:center}
@@ -150,7 +180,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .sh-core{position:relative;z-index:1;width:54px;height:54px;border-radius:50%;background:radial-gradient(circle at 38% 32%,#f06060 0%,var(--red) 50%,#6a1010 100%);box-shadow:0 3px 10px rgba(0,0,0,.8),inset 0 3px 5px rgba(255,255,255,.15),inset 0 -2px 4px rgba(0,0,0,.3);transition:transform .07s,box-shadow .07s}
 .shutter:active .sh-core{transform:scale(.9) translateY(2px);box-shadow:0 1px 4px rgba(0,0,0,.7),inset 0 3px 7px rgba(0,0,0,.5)}
 
-/* PULSATING ANIMATION FOR ACTIVE DE STAGE */
 @keyframes de-pulse {
   0% { box-shadow: 0 3px 10px rgba(0,0,0,.8); transform: scale(1); }
   50% { box-shadow: 0 0 20px rgba(200,168,75,0.6); transform: scale(1.03); }
