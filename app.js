@@ -1,8 +1,9 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v15 (True WYSIWYG & PWA Standalone Guard)
+   ANALOGIA — app.js v16 (True WYSIWYG & Standalone Guard)
    Features: Linear light fusions, mechanical shutter blink,
-   forced sandbox security check, cache busting matrices.
+   forced sandbox security check, cache busting matrices,
+   automatic background downloads like native iOS.
 ═══════════════════════════════════════ */
 
 const S={
@@ -21,51 +22,26 @@ let videoDevices = [];
 let currentDeviceIndex = 0;
 let deferredPrompt = null;
 
-/* ── Standalone Mode Verification Layer ── */
+/* ── Kezdőképernyő (Standalone Mode) Biztonsági Fal ── */
 function checkStandaloneGuard() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if (!isStandalone) {
-    const overlay = document.getElementById('install-overlay');
-    const instructions = document.getElementById('install-instructions');
-    const shell = document.querySelector('.shell');
-    
-    if (overlay && instructions && shell) {
-      shell.style.display = 'none';
-      overlay.classList.remove('hidden');
-      
-      const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (isiOS) {
-        instructions.innerHTML = `
-          <div class="install-step">
-            Kattints a böngésző <strong>Megosztás</strong> gombjára, majd válaszd a <strong>Hozzáadás a kezdőképernyőhöz</strong> lehetőséget.
-          </div>
-        `;
-      } else {
-        instructions.innerHTML = `
-          <div class="install-step" style="color:var(--muted)">
-            Várd meg a gomb felvillanását a gyári letöltéshez, vagy add hozzá manuálisan a böngésző menüjéből.
-          </div>
-        `;
-      }
-    }
+  const overlay = document.getElementById('install-overlay');
+  const shell = document.querySelector('.shell');
+  
+  if (isStandalone) {
+    // Ha már ki van rakva a főképernyőre és onnan indul: tiszta kameramód futtatása!
+    if (overlay) overlay.classList.add('hidden');
+    if (shell) shell.style.display = 'flex';
+  } else {
+    // Ha sima böngészőből nyitják meg: elrejtjük a kamerát, kényszerítjük a telepítést!
+    if (shell) shell.style.display = 'none';
+    if (overlay) overlay.classList.remove('hidden');
   }
 }
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  const installBtn = document.getElementById('native-install-btn');
-  if (installBtn) {
-    installBtn.classList.remove('hidden');
-    installBtn.addEventListener('click', async () => {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        window.close();
-      }
-      deferredPrompt = null;
-    });
-  }
 });
 
 /* ── Film profiles ── */
@@ -509,29 +485,26 @@ function getSelectedFrame() {
   return activeRadio ? activeRadio.value : 'none';
 }
 
-/* NATIVE MECHANICAL SHUTTER CURTAIN ENGINE CONTROLLER */
+/* BLENDE ANIMÁCIÓ CONTROLLER (iOS REDŐNYZÁR MÁSOLAT) */
 function triggerMechanicalShutter(callback) {
   const blink = document.getElementById('shutter-blink');
   if(!blink) return callback();
   
   blink.classList.remove('hidden', 'open');
-  blink.getBoundingClientRect(); // Kényszerített reflow-mátrix
-  blink.classList.add('active'); // Redőnyzár azonnali bezáródása
+  blink.getBoundingClientRect(); 
+  blink.classList.add('active'); 
   
-  // Amikor a lamellák teljesen összezáródtak (120ms)
   setTimeout(() => {
-    callback(); // Kép rögzítése a háttérben vak sötétben
+    callback(); 
     
-    // Lamellák felpattanása (visszaugrás)
     setTimeout(() => {
       blink.classList.add('open');
       blink.classList.remove('active');
       
-      // Animáció lecsengése után konténer takarítása
       setTimeout(() => {
         blink.classList.add('hidden');
         blink.classList.remove('open');
-      }, 180);
+      }, 160);
     }, 60);
   }, 120);
 }
@@ -553,7 +526,7 @@ async function capture(){
     return; 
   }
 
-  // A gyári iOS zárszerkezet pontos szoftveres leképezése
+  // Zársebességi blende animáció indítása
   triggerMechanicalShutter(async () => {
     S.saving=true;
     const OUT=1080;
@@ -640,18 +613,23 @@ async function capture(){
       sCtx.fillText('by Analogia',photoX+photoS-Math.round(OUT*.02),ch-Math.round((ch-photoY-photoS)/2+fs*.3));
     }
 
+    /* PRÉMIUM FIX: Teljesen elnyomjuk a külső felugró Lightbox ablakot. A blende lecsengése után a kész kép automatikusan letöltődik a háttérben (mint az iOS-en), így egy tizedmásodpercre sem akad meg a folyamatos fotózás! */
     sv.toBlob(blob=>{
       const now=new Date(),p=n=>String(n).padStart(2,'0');
       const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
-      const fname=`Analogia/Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.jpg`;
+      const fname=`Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.jpg`;
       
       if(S.lastPhotoUrl)URL.revokeObjectURL(S.lastPhotoUrl);
       const url=URL.createObjectURL(blob);
-      const pi=document.getElementById('photo-preview-img');
-      pi.onload=()=>{S.lastPhotoUrl=url;};
-      pi.src=url;pi.setAttribute('data-filename',fname);
-      document.getElementById('photo-overlay').classList.remove('hidden');
-      lockOverlayZoom();
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      setTimeout(() => URL.revokeObjectURL(url), 1200);
       
       if(S.deActive) {
         S.deStage = 0;
@@ -765,6 +743,27 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
 document.getElementById('de-toggle-btn').addEventListener('click', toggleDoubleExposure);
 document.getElementById('cam-toggle-btn').addEventListener('click', cycleCamera);
 
+/* NATIVE OPERATING REDIRECT FOR INSTALL SELECTION BUTTONS */
+document.getElementById('native-install-btn').addEventListener('click', async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    window.close();
+  } else {
+    const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isiOS) {
+      alert("iOS eszközön: Kattintson a Safari alján lévő 'Megosztás' gombra, majd válaszd a 'Hozzáadás a kezdőképernyőhöz' opciót!");
+    } else {
+      alert("A böngésző még nem készítette elő a telepítést. Kérjük, használja a böngésző jobb felső menüjében a 'Telepítés' vagy 'Hozzáadás a főképernyőhöz' opciót!");
+    }
+  }
+});
+
+document.getElementById('cancel-install-btn').addEventListener('click', () => {
+  window.close();
+});
+
 document.getElementById('exit-btn').addEventListener('click', () => {
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(()=>{});
@@ -815,7 +814,7 @@ document.addEventListener('touchmove', e => {
 
 /* ── Boot ── */
 (async()=>{
-  checkStandaloneGuard();
+  checkStandaloneGuard(); // Első biztonsági ellenőrzés a betöltéskor
   if(!initGL()){document.getElementById('perm-err').textContent='WebGL nem elérhető.';return;}
   glCv.addEventListener('webglcontextlost',e=>{
     e.preventDefault();

@@ -10,14 +10,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 /* PWA FORCED RETRO INSTALL OVERLAY */
 .install-overlay{position:fixed;inset:0;z-index:11000;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px}
 .install-overlay.hidden{display:none}
-.install-box{width:100%;max-width:360px;background:var(--metal2);border:1px solid var(--gold-dim);border-radius:8px;padding:32px 24px;text-align:center;box-shadow:0 12px 36px rgba(0,0,0,0.8)}
-.install-brand{font-family:var(--display);font-size:36px;letter-spacing:0.15em;color:var(--gold);line-height:1}
-.install-model{font-size:9px;letter-spacing:0.25em;color:var(--muted);margin-top:4px}
-.install-sep{height:1px;background:var(--dim);margin:20px 0}
+.install-box{width:100%;max-width:340px;background:var(--metal2);border:1px solid var(--gold-dim);border-radius:8px;padding:32px 24px;text-align:center;box-shadow:0 12px 36px rgba(0,0,0,0.8)}
+.install-brand{font-family:var(--display);font-size:36px;letter-spacing:0.15em;color:var(--gold);line-height:1;margin-bottom:16px}
 .install-desc{font-size:12px;line-height:1.6;color:var(--text);margin-bottom:24px;letter-spacing:0.02em}
-.install-step{font-size:12px;background:var(--bg);border:1px solid var(--dim);padding:14px;border-radius:4px;color:var(--gold);line-height:1.5;letter-spacing:0.04em}
-.native-install-btn{width:100%;font-family:var(--font);font-size:12px;font-weight:bold;letter-spacing:0.12em;background:var(--gold);color:var(--bg);border:none;padding:14px;border-radius:4px;cursor:pointer;box-shadow:0 4px 10px rgba(0,0,0,0.3)}
+.install-actions{display:flex;gap:12px;width:100%}
+.native-install-btn{flex:1;font-family:var(--font);font-size:12px;font-weight:bold;letter-spacing:0.12em;background:var(--gold);color:var(--bg);border:none;padding:14px;border-radius:4px;cursor:pointer;box-shadow:0 4px 10px rgba(0,0,0,0.3)}
 .native-install-btn:active{filter:brightness(0.9)}
+.cancel-install-btn{flex:1;font-family:var(--font);font-size:12px;letter-spacing:0.12em;background:var(--metal);color:var(--muted);border:1px solid var(--dim);padding:14px;border-radius:4px;cursor:pointer}
+.cancel-install-btn:active{background:var(--bg)}
 
 /* ROTATE */
 .rotate-overlay{position:fixed;inset:0;z-index:9999;background:#000;display:flex;align-items:center;justify-content:center}
@@ -28,7 +28,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .rotate-title{font-family:var(--display);font-size:22px;letter-spacing:.2em;color:var(--gold)}
 .rotate-overlay small{font-size:11px;letter-spacing:.1em;color:var(--muted)}
 
-/* SAVING OVERLAY (USED ONLY DURING RE-INITIALIZATION) */
+/* SAVING OVERLAY */
 .saving-overlay{position:fixed;inset:0;z-index:8000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.65);backdrop-filter:blur(8px)}
 .saving-overlay.hidden{display:none}
 .saving-box{display:flex;flex-direction:column;align-items:center;gap:14px;background:var(--metal2);border:1px solid var(--gold-dim);padding:28px 40px;border-radius:6px}
@@ -44,10 +44,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .modal-title{font-family:var(--display);font-size:22px;letter-spacing:.2em;color:var(--gold)}
 
-/* HARMONIZED PREMIUM CORNER GOLD CLOSE BUTTON */
+/* HARMONIZED GOLD CLOSE BUTTON WITH GOLD BORDER AND GOLD X */
 .modal-close{
   width:32px;height:32px;border-radius:50%;
-  background:var(--bg);border:1.5px solid var(--gold-dim);
+  background:var(--bg);border:1.5px solid var(--gold);
   cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;
   box-shadow:0 2px 5px rgba(0,0,0,.5), 0 0 0 2px var(--metal2), 0 0 0 3px var(--edge);
   transition:transform 0.1s;
@@ -82,17 +82,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .film-btn-arrow{font-size:12px;color:var(--gold-dim);flex-shrink:0;line-height:1}
 .hud-right{display:flex;align-items:center;justify-content:flex-end;height:44px;flex-shrink:0;width:44px}
 
-/* HARMONIZED GOLD EXIT BUTTON IN THE TOPBAR */
+/* HARMONIZED GOLD EXIT BUTTON WITH GOLD BORDER */
 .exit-btn{
   position:relative;width:34px;height:34px;border-radius:50%;
-  background:var(--bg);border:1.5px solid var(--gold-dim);cursor:pointer;
+  background:var(--bg);border:1.5px solid var(--gold);cursor:pointer;
   display:flex;align-items:center;justify-content:center;padding:0;
   box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 0 2px var(--metal2), 0 0 0 3px var(--edge);
 }
 .exit-btn::after{content:'✕';color:var(--gold);font-family:var(--font);font-size:13px;font-weight:bold}
 .exit-btn:active{transform:scale(0.92)}
 
-/* VIEWFINDER — 1:1 square */
+/* VIEWFINDER 1:1 */
 .vf-wrap{flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px 12px}
 .vf-bezel{position:relative;width:100%;aspect-ratio:1/1;background:#000;border:2px solid var(--dim);overflow:hidden;box-shadow:inset 0 0 24px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.6)}
 #gl-canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
@@ -114,7 +114,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .noperm small{font-size:9px;color:var(--muted);text-align:center;line-height:1.7}
 .perm-btn{font-size:11px;letter-spacing:.12em;color:var(--bg);background:var(--gold);border:none;padding:10px 24px;cursor:pointer;margin-top:8px}
 
-/* NATIVE MECHANICAL SHUTTER CURTAIN ANIMATION ENGINE */
+/* BLENDE ANIMATION SHUTTER BLADES */
 .shutter-blink {
   position:absolute;inset:0;z-index:25;
   display:flex;flex-direction:column;pointer-events:none;
@@ -127,11 +127,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 }
 .shutter-blade.top {transform:translateY(-100%);border-bottom:2px solid #000}
 .shutter-blade.bottom {transform:translateY(100%);border-top:2px solid #000}
-/* Snappy mechanical closure and smooth rebound */
 .shutter-blink.active .shutter-blade.top {transform:translateY(0);transition:transform 0.12s cubic-bezier(0.25, 1, 0.3, 1)}
 .shutter-blink.active .shutter-blade.bottom {transform:translateY(0);transition:transform 0.12s cubic-bezier(0.25, 1, 0.3, 1)}
-.shutter-blink.open .shutter-blade.top {transform:translateY(-100%);transition:transform 0.18s cubic-bezier(0.5, 0, 0.75, 0)}
-.shutter-blink.open .shutter-blade.bottom {transform:translateY(100%);transition:transform 0.18s cubic-bezier(0.5, 0, 0.75, 0)}
+.shutter-blink.open .shutter-blade.top {transform:translateY(-100%);transition:transform 0.16s cubic-bezier(0.5, 0, 0.75, 0)}
+.shutter-blink.open .shutter-blade.bottom {transform:translateY(100%);transition:transform 0.16s cubic-bezier(0.5, 0, 0.75, 0)}
 
 /* BOTTOM — fills remaining space */
 .ctrl-bottom{flex:1;background:var(--metal);border-top:2px solid var(--edge);display:flex;flex-direction:column;min-height:0}
@@ -217,7 +216,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 @supports(height:100dvh){.shell{height:100dvh}}
 @supports(padding-bottom:env(safe-area-inset-bottom)){.ctrl-bottom{padding-bottom:env(safe-area-inset-bottom)}}
 
-/* PHOTO PREVIEW OVERLAY */
+/* PHOTO PREVIEW OVERLAY (MANUAL BACKUP SCREEN) */
 .photo-overlay{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;flex-direction:column;touch-action:none}
 .photo-overlay.hidden{display:none}
 .photo-overlay-bg{position:absolute;inset:0;background:rgba(0,0,0,.92)}
