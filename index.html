@@ -43,7 +43,7 @@
     </div>
     <img id="photo-preview-img" class="photo-preview-img" alt="Fotó előnézet"/>
     <div class="photo-overlay-actions">
-      <button class="photo-overlay-save" id="photo-save-btn">⬇ MENTÉS / LETÖLTÉS</button>
+      <button class="photo-overlay-save" id="photo-save-btn"><b>⬇ MENTÉS / LETÖLTÉS</b></button>
       <button class="photo-overlay-close" id="photo-overlay-close">BEZÁRÁS</button>
     </div>
   </div>
@@ -149,19 +149,31 @@
     </div>
 
     <div class="shutter-row">
-      <button class="de-toggle-btn" id="de-toggle-btn" title="Dupla Expozíció">
-        <span class="de-led" id="de-led"></span>
-        <span class="de-text">DE</span>
-      </button>
+      <div class="side-btn-container left-side">
+        <button class="side-action-btn" id="torch-toggle-btn" title="Vaku / Torch">
+          <span class="btn-led" id="torch-led"></span>
+          <svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+        </button>
+        <button class="de-toggle-btn" id="de-toggle-btn" title="Dupla Expozíció">
+          <span class="de-led" id="de-led"></span>
+          <span class="de-text">DE</span>
+        </button>
+      </div>
       
       <button class="shutter" id="shutter">
         <span class="sh-ring"></span>
         <span class="sh-core"></span>
       </button>
 
-      <button class="cam-toggle-btn" id="cam-toggle-btn" title="Kamera váltása">
-        <svg viewBox="0 0 24 24"><path d="M20 5h-3.17L15 3H9L7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-8 13c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3z"/></svg>
-      </button>
+      <div class="side-btn-container right-side">
+        <button class="side-action-btn" id="dust-toggle-btn" title="Por és Karc szűrő (FX)">
+          <span class="btn-led" id="dust-led"></span>
+          <span class="de-text">FX</span>
+        </button>
+        <button class="cam-toggle-btn" id="cam-toggle-btn" title="Kamera váltása">
+          <svg viewBox="0 0 24 24"><path d="M20 5h-3.17L15 3H9L7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-8 13c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3z"/></svg>
+        </button>
+      </div>
     </div>
 
   </div>
