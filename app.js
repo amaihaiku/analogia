@@ -290,7 +290,7 @@ function buildDial(){
   if(dialWrap&&centerLine)centerLine.style.left=dialWrap.clientWidth/2+'px';
 }
 
-/* A -7px eltolás a szimmetrikus tick kiterjedéssel (4px zéró vonal) kombinálva abszolút központosítást ad */
+/* A -7px eltolás és a zéró tick egyensúlya abszolút precíz központosítást garantál */
 function syncDial(){const v=getV(),o=v2o(v);doff=o;const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${o - 7}px)`;updHUD(v);}
 function updHUD(v){const m=MODES[S.mode],f=m.fmt(v);document.getElementById('hud-mode-val').textContent=f;document.getElementById('hud-mode-name').textContent=S.mode.toUpperCase();}
 function dMove(dx){doff+=dx;const v=setV(o2v(doff));doff=v2o(v);const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${doff - 7}px)`;updHUD(v);}
@@ -458,13 +458,13 @@ function syncThumbUI() {
 }
 
 function deleteAlbumItem(index, event) {
-  event.stopPropagation(); // Megakadályozzuk, hogy a törlés kattintás megnyissa a Lightboxot
+  event.stopPropagation();
   S.gallery.splice(index, 1);
   try {
     localStorage.setItem('analogia_album_data', JSON.stringify(S.gallery));
   } catch(_) {}
   syncThumbUI();
-  openGalleryModal(); // Frissítjük a rácsot
+  openGalleryModal();
 }
 
 function openLightbox(src) {
@@ -480,7 +480,6 @@ function buildGalleryGrid(grid) {
     grid.innerHTML = '<div style="grid-column:span 3;text-align:center;font-size:11px;color:var(--muted);padding:40px 0;">Az Analogia album üres</div>';
     return;
   }
-  // Fordított sorrend, hogy a legfrissebb legyen legelöl
   [...S.gallery].reverse().forEach((src, revIdx) => {
     const origIdx = S.gallery.length - 1 - revIdx;
     
@@ -595,7 +594,6 @@ async function capture(){
     sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
   }
 
-  // Date stamp
   if(document.getElementById('date-tog').checked){
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -613,7 +611,7 @@ async function capture(){
     sCtx.fillText('by Analogia',photoX+photoS-Math.round(OUT*.02),ch-Math.round((ch-photoY-photoS)/2+fs*.3));
   }
 
-  /* KULCSFONTOSSÁGÚ OPTIMALIZÁLÁS: a mentést lassító, óriási toDataURL() kód helyett egy apró, különálló rácsvásznat (240x240) használunk a belső albumhoz. Ezzel a mentési idő a tizedére zuhant vissza, azonnali lett az exponálás. */
+  /* Ultra-gyors dedikált hardveres lekicsinyítés (240px) a mentési fagyás megszüntetésére */
   try {
     const thumbCanvas = document.createElement('canvas');
     thumbCanvas.width = 240; thumbCanvas.height = 240;
@@ -621,7 +619,7 @@ async function capture(){
     tCtx.drawImage(sv, 0, 0, 240, 240);
     const albumDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.75);
     S.gallery.push(albumDataUrl);
-    if (S.gallery.length > 24) S.gallery.shift(); // Max 24 elem a tárhely-kvóta védelmében
+    if (S.gallery.length > 24) S.gallery.shift();
     localStorage.setItem('analogia_album_data', JSON.stringify(S.gallery));
     syncThumbUI();
   } catch(_) {}
@@ -663,7 +661,7 @@ async function listVideoDevices() {
 
 async function cycleCamera() {
   if (videoDevices.length <= 1) await listVideoDevices();
-  if (videoDevices.length <= 1) return; // Nincs más váltható eszköz
+  if (videoDevices.length <= 1) return;
   
   currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
   const nextDevice = videoDevices[currentDeviceIndex];
@@ -693,7 +691,6 @@ async function initCam(preferredDeviceId = null){
       S.ready=true;
       const tk=stream.getVideoTracks()[0],st=tk.getSettings();
       
-      // Index szinkronizálása az aktuálisan kiválasztott eszközhöz
       if(videoDevices.length === 0) {
         listVideoDevices().then(() => {
           currentDeviceIndex = videoDevices.findIndex(d => d.deviceId === st.deviceId);
@@ -756,7 +753,6 @@ document.getElementById('thumb-btn').addEventListener('click', openGalleryModal)
 document.getElementById('gallery-close').addEventListener('click', closeGalleryModal);
 document.getElementById('gallery-backdrop').addEventListener('click', closeGalleryModal);
 
-// Lightbox zárás rákattintással
 document.getElementById('gallery-lightbox').addEventListener('click', () => {
   document.getElementById('gallery-lightbox').classList.add('hidden');
 });

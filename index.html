@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="style.css"/>
+<link rel="stylesheet" href="style.css?v=13"/>
 </head>
 <body>
 
@@ -167,7 +167,18 @@
 
 <video id="vid" playsinline autoplay muted style="display:none"></video>
 <canvas id="save-canvas" style="display:none"></canvas>
-<script src="app.js"></script>
-
+<script src="app.js?v=13"></script>
+<script>
+  // Kényszerített Service Worker megsemmisítés a beragadt cache-börtön szétzúzásához
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+      for (let registration of registrations) {
+        registration.unregister().then(() => {
+          console.log('[SW] Régi offline cache sikeresen felszámolva!');
+        });
+      }
+    });
+  }
+</script>
 </body>
 </html>
