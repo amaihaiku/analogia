@@ -141,6 +141,7 @@ float h2(vec2 p){p=fract(p*vec2(234.34,435.34));p+=dot(p,p+34.23);return fract(p
 float sn(vec2 u){vec2 i=floor(u),f=fract(u),s=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1,0)),s.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),s.x),s.y);}
 float fbm(vec2 u){return sn(u)*.5+sn(u*2.)*.25+sn(u*4.)*.125;}
 float gc(float l){float t=1.-abs(l-.5)*2.;return t*t*(3.-2.*t);}
+float gn(vec2 p,float seed){vec2 g=floor(p);float a=h2(g+vec2(seed,seed*1.7));float b=h2(g+vec2(seed*2.3+5.0,seed*0.9+11.0));return (a+b)-1.0;}
 
 void main(){
   vec2 vuv = cropUV(v_uv);
@@ -175,8 +176,21 @@ void main(){
   col=clamp(col,0.0,1.0);
   
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
-  if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);float n=(fbm(nuv)-.5)*2.;col=clamp(col*(1.+n*u_grain*.45*gc(lum)),0.,1.);}
   
+if(u_grain>0.){
+  float lum=dot(col,vec3(.2126,.7152,.0722));
+  // ISO-csatolas: a grain csuszka egyszerre vezerli a meretet ES az erot
+  float gsize=mix(1.9,0.85,u_grain)*u_grain_sz;   // nagyobb grain -> durvabb szemcse
+  float gstr=u_grain*0.16;
+  vec2 px=v_uv*u_cvs_sz/gsize;
+  vec2 jit=vec2(u_time*5.0,u_time*3.0);            // diszkret ugras frame-enkent, nem "uszik"
+  float nr=gn(px+jit,11.0);
+  float ng=gn(px+jit,37.0);
+  float nb=gn(px+jit,71.0)*1.4;                    // kek reteg szemcsesebb (mint valodi filmen)
+  float shadowW=mix(1.25,0.45,smoothstep(0.0,1.0,lum)); // sotet tonusban erosebb
+  col=clamp(col+vec3(nr,ng,nb)*gstr*shadowW,0.,1.);
+}
+
   // Élő procedurális por és karc — FINOM, rendezetlen, overlay jellegű (nem mesterkélt)
   if(u_dust_active > 0.5) {
     float seed = u_dust_seed;
