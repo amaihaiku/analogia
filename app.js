@@ -439,6 +439,41 @@ function updateLiveFramePreview() {
   }
 }
 
+// JAVÍTVA: Valós idejű élő dátum overlay frissítése, méretezése és pozicionálása
+function updateLiveDate() {
+  let el = document.getElementById('live-date');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'live-date';
+    el.className = 'live-date';
+    const bezel = document.querySelector('.vf-bezel');
+    if (bezel) bezel.appendChild(el);
+  }
+  
+  const dateTog = document.getElementById('date-tog');
+  if (!dateTog || !dateTog.checked) {
+    el.classList.add('hidden');
+    return;
+  }
+  
+  const now = new Date(), p = n => String(n).padStart(2, '0');
+  el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
+  el.classList.remove('hidden');
+  
+  const frame = getSelectedFrame();
+  el.style.bottom = '12px';
+  el.style.right = '12px';
+  el.style.color = '#e8830a';
+  
+  if (frame === 'film') {
+    el.style.bottom = 'calc(13% + 10px)'; // Intelligensen a filmcsík perforációja FÖLÉ ugrik
+  } else if (frame === 'antik') {
+    el.style.bottom = '24px'; // Beljebb igazodik az indák elkerüléséhez
+    el.style.right = '24px';
+    el.style.color = '#7a6440';
+  }
+}
+
 function triggerMechanicalShutter(callback) {
   const blink = document.getElementById('shutter-blink');
   if(!blink) return callback();
@@ -485,13 +520,14 @@ async function capture(){
     const frame = getSelectedFrame();
     let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
+    // JAVÍTVA: A filmcsík keret most már kitakarásos belső maszk, így megmarad a tökéletes négyzetes arány!
     if(frame==='antik'){
       photoS=OUT; photoX=0; photoY=0; cw=OUT; ch=OUT;
     } else if(frame==='polaroid'){
       const pad=Math.round(OUT*.06),bot=Math.round(OUT*.22);
       cw=OUT+pad*2;ch=OUT+pad+bot;photoX=pad;photoY=pad;photoS=OUT;
     } else if(frame==='film'){
-      const sh=Math.round(OUT*.13);ch=OUT+sh*2;photoX=0;photoY=sh;photoS=OUT;
+      photoS=OUT; photoX=0; photoY=0; cw=OUT; ch=OUT;
     }
 
     const sv=document.getElementById('save-canvas'); if(!sv) return;
@@ -500,7 +536,6 @@ async function capture(){
 
     if(frame==='polaroid'){sCtx.fillStyle='#f2ede4';} else {sCtx.fillStyle='#000';}
     sCtx.fillRect(0,0,cw,ch);
-    if(frame==='film')drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
 
     if(S.ready&&vid&&vid.readyState>=2){
       const bw=glCv.width,bh=glCv.height;
@@ -538,17 +573,20 @@ async function capture(){
     srcCtx.putImageData(new ImageData(new Uint8ClampedArray(flipped), glW, glH), 0, 0);
     tc.drawImage(srcCanvas, 0, 0, glW, glH, 0, 0, photoS, photoS);
 
+    // Alap kép ráfestése
+    sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
+
+    // JAVÍTVA: Keretmaszkok ráfestése a fotó UTÁN (így kitakar, nem pedig kitolódik)
     if(frame==='antik'){
-      sCtx.drawImage(tmp,0,0,OUT,OUT);
       try{
         const fimg=await loadImg('antik_keret_web.png');
         sCtx.drawImage(fimg,0,0,OUT,OUT);
       }catch(e){}
-    } else {
-      sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
+    } else if(frame==='film'){
+      drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
     }
 
-    // JAVÍTVA: Keret-kompatibilis intelligens dátum elhelyezési koordináta-számítás
+    // JAVÍTVA: Keret-kompatibilis intelligens dátum elhelyezési koordináta-számlálás mentéskor
     const dateTog = document.getElementById('date-tog');
     if(dateTog && dateTog.checked){
       const now=new Date(),p=n=>String(n).padStart(2,'0');
@@ -560,9 +598,9 @@ async function capture(){
       let ty = photoY + photoS - fs * 0.5;
       
       if (frame === 'film') {
-        ty = photoY + photoS - fs * 0.8; // Biztonságosan a filmcsík perforációja FÖLÉ tolva
+        ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4; // Tökéletesen a filmcsík belső perforációja FÖLÉ tolva
       } else if (frame === 'antik') {
-        tx = photoX + photoS - fs * 1.6; // Beljebb húzva, hogy a sarokdísz ne takarja el
+        tx = photoX + photoS - fs * 1.6; // Beljebb húzva, hogy az antik sarokdísz ne takarja el
         ty = photoY + photoS - fs * 1.6;
       }
       
@@ -608,18 +646,20 @@ async function capture(){
   });
 }
 
-// JAVÍTVA: Ritkább, 1:1 precíz téglalap alapú perforáció kirajzolása mentéskor (tökéletesen egyezik a CSS-sel)
+/* JAVÍTVA: Ritkább, 1:1 precíz téglalap alapú perforáció kirajzolása mentéskor (tökéletesen egyezik a CSS-sel és nem törli ki a fotót) */
 function drawFilm(c,W,H,sh){
-  c.fillStyle='#111008';c.fillRect(0,0,W,H);
   [0,H-sh].forEach(sy=>{
-    c.fillStyle='#1e1c17';c.fillRect(0,sy,W,sh);
-    const hh=sh*.55|0, hy=sy+(sh-hh)/2;
-    const hw=W*.07|0; 
+    c.fillStyle='#1e1c17';
+    c.fillRect(0,sy,W,sh);
+    
+    const hh=Math.round(sh * 0.55), hy=sy+(sh-hh)/2;
     const steps = 5;
+    const colWidth = W / steps;
+    const hw = Math.round(colWidth * 0.35); 
+    
     c.fillStyle='#0a0904';
     for(let i=0; i<steps; i++) {
-      const colWidth = W / steps;
-      const x = (colWidth * i) + (colWidth - hw) / 2;
+      const x = Math.round((colWidth * i) + (colWidth - hw) / 2);
       c.beginPath();
       c.rect(x,hy,hw,hh);
       c.fill();
@@ -691,11 +731,21 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
 const deTogBtn = document.getElementById('de-toggle-btn'); if(deTogBtn) deTogBtn.addEventListener('click', toggleDoubleExposure);
 const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTogBtn.addEventListener('click', cycleCamera);
 
+// Keretválasztás eseményfigyelők frissítése az élő dátum helyzetének szinkronizálásához is
 document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
-  radio.addEventListener('change', updateLiveFramePreview);
+  radio.addEventListener('change', () => {
+    updateLiveFramePreview();
+    updateLiveDate();
+  });
 });
 
-// JAVÍTVA: Mentés gombra kattintás után azonnal elindul a letöltés ÉS bezáródik az overlay ablak
+// Dátum gomb eseménykezelője a valós idejű overlay-hez
+const dateTogEl = document.getElementById('date-tog');
+if (dateTogEl) {
+  dateTogEl.addEventListener('change', updateLiveDate);
+}
+
+// JAVÍTVA: Mentés gombra kattintás után azonnal letöltődik a kép ÉS bezáródik a mentési ablak
 const photoSaveBtn = document.getElementById('photo-save-btn');
 if (photoSaveBtn) {
   photoSaveBtn.onclick = () => {
@@ -707,7 +757,7 @@ if (photoSaveBtn) {
     a.click();
     document.body.removeChild(a);
     
-    // Az ablak automatikus bezárása sikeres mentés után
+    // Az ablak azonnali bezárása mentés után
     const photoOverlay = document.getElementById('photo-overlay');
     if (photoOverlay) photoOverlay.classList.add('hidden');
   };
@@ -813,6 +863,7 @@ window.addEventListener('appinstalled', () => {
   }
   syncDial();
   updateLiveFramePreview();
+  updateLiveDate();
   await listVideoDevices();
   if(navigator.mediaDevices?.getUserMedia) initCam();
   else { const pe = document.getElementById('perm-err'); if(pe) pe.textContent='Kamera API nem támogatott.'; }
