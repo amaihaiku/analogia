@@ -1,9 +1,10 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v16 (Modular WYSIWYG Double Exposure Update)
-   Features: Dynamic external folder-based injection arrays,
-   iOS hardware shutter sync, mandatory WebGL unit 2 texture
-   completeness binder, standalone installation routing.
+   ANALOGIA — app.js v17
+   Változások v17: valódi por+karc FX (fényerő-emelés nélkül),
+   vaku időzítés javítva (megvilágított frame bevárása rVFC-vel),
+   torch-képesség ellenőrzés, antik dátum normál font + kisebb,
+   DE/FX gombfelirat arany, WYSIWYG film-dátum igazítás.
 ═══════════════════════════════════════ */
 
 const AVAILABLE_FILTERS = ['kodachrome', 'kodak_portra', 'fuji_velvia', 'cinestill', 'teal_orange', 'bleach', 'cross', 'highcontrast_bw', 'l_monochrome', 'infrared'];
@@ -78,7 +79,7 @@ async function loadExternalFilters() {
   const promises = AVAILABLE_FILTERS.map(id => {
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = `filters/${id}.js?v=16`;
+      script.src = `filters/${id}.js?v=17`;
       script.onload = resolve;
       script.onerror = resolve; 
       document.head.appendChild(script);
@@ -172,19 +173,26 @@ void main(){
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);float n=(fbm(nuv)-.5)*2.;col=clamp(col*(1.+n*u_grain*.45*gc(lum)),0.,1.);}
   
-  // Élő procedurális por és karc számítás - Finomhangolva diafilm-szerűre
+  // Élő procedurális por és karc — közepes, retro filmes hangulat (nem világosítja a képet)
   if(u_dust_active > 0.5) {
-    float dNoise = h2(floor(vuv * u_cvs_sz / 2.0) + u_dust_seed * 73.0);
-    if (dNoise > 0.9997) { // Ritkább por
-      col *= 0.15;
-    } else if (dNoise < 0.0015) { // Több szösz
-      col += vec3(0.15); // Finomabb fényesedés
+    // Sötét porszemek: ritka, pontszerű sötét foltok a filmen lerakódott por szimulálására
+    float dCell = h2(floor(vuv * u_cvs_sz / 2.5) + u_dust_seed * 73.0);
+    if (dCell > 0.9985) {
+      col *= 0.35; // Erős sötét pötty (porszem árnyéka)
     }
-    float sX = h2(vec2(floor(vuv.x * u_cvs_sz.x * 0.85), u_dust_seed * 19.7));
-    if (sX > 0.9990) { // Ritkább karcok
-      float sY = sn(vec2(u_dust_seed * 5.0, vuv.y * 12.0));
-      if (sY > 0.15) {
-        col = mix(col, vec3(0.12), 0.65);
+    // Világos szöszök: ritka apró fehér pontok (filmpor a fényúton) — nem emeli a teljes képet
+    float lCell = h2(floor(vuv * u_cvs_sz / 3.5) + u_dust_seed * 51.0 + 17.0);
+    if (lCell > 0.99925) {
+      col = mix(col, vec3(0.85), 0.7); // Lokális világos pötty, nem globális emelés
+    }
+    // Függőleges karcok: vékony világos vonalak, ahogy a régi filmtekercsen
+    float scratchCol = floor(vuv.x * u_cvs_sz.x * 0.9);
+    float sPresent = h2(vec2(scratchCol, floor(u_dust_seed * 7.0)));
+    if (sPresent > 0.9955) {
+      // A karc nem fut végig: fbm-mel megszaggatjuk függőlegesen
+      float sLen = sn(vec2(scratchCol * 0.13, vuv.y * 6.0 + u_dust_seed * 3.0));
+      if (sLen > 0.45) {
+        col = mix(col, vec3(0.78), 0.45); // Halvány világos karcvonal
       }
     }
   }
@@ -511,7 +519,8 @@ function updateLiveDate() {
     el.style.textAlign = 'center';
     el.style.color = '#2a2a2a'; // Nagyon sötétszürke Serif font
     el.style.fontFamily = 'Georgia, serif';
-    el.style.fontSize = '14px'; // Kicsit kisebb Serif betűméret
+    el.style.fontWeight = 'normal'; // Antik kerethez normál (nem bold) súly
+    el.style.fontSize = '12px'; // Kisebb Serif betűméret
   } else {
     const now = new Date(), p = n => String(n).padStart(2, '0');
     el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -520,11 +529,12 @@ function updateLiveDate() {
     el.style.right = '12px';
     el.style.textAlign = 'right';
     el.style.fontFamily = "'Courier New', Courier, monospace";
+    el.style.fontWeight = 'bold';
     el.style.fontSize = '14px';
     el.style.color = '#e8830a';
-    
+
     if (frame === 'film') {
-      el.style.bottom = 'calc(13% + 10px)';
+      el.style.bottom = 'calc(13% + 12px)'; // Igazítva a mentett perforáció magasságához (WYSIWYG)
     } else {
       el.style.bottom = '12px';
     }
@@ -567,6 +577,33 @@ function triggerMechanicalShutter(callback) {
 
 function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
 
+// Megvárja, hogy a kamera N valódi videóframe-et adjon (pl. a torch megvilágítás megjelenjen a streamben).
+// rVFC-t használ ha elérhető, különben időzített fallback.
+function waitForVideoFrames(n) {
+  return new Promise(resolve => {
+    if (vid && typeof vid.requestVideoFrameCallback === 'function') {
+      let count = 0;
+      const step = () => {
+        count++;
+        if (count >= n) resolve();
+        else vid.requestVideoFrameCallback(step);
+      };
+      vid.requestVideoFrameCallback(step);
+    } else {
+      // Fallback: ~3 frame 30fps-nél ≈ 100ms, biztonsági ráhagyással
+      setTimeout(resolve, Math.max(100, n * 33));
+    }
+  });
+}
+
+// Igaz, ha az adott videótrack ténylegesen támogatja a hardveres torch-ot
+function trackSupportsTorch(track) {
+  try {
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    return !!caps.torch;
+  } catch (_) { return false; }
+}
+
 async function capture(){
   if(S.saving||!S.ready)return;
   
@@ -586,18 +623,25 @@ async function capture(){
     return; 
   }
 
-  // JAVÍTVA: Expozíció előtti hardveres vaku villanás szinkronizálása WebGL hívással
+  // JAVÍTVA: Expozíció előtti hardveres vaku villanás — a megvilágított frame bevárásával
   triggerMechanicalShutter(async () => {
     S.saving=true;
-    
-    // Ideiglenes vaku villantás hardveres Torch bekapcsolással fotó módban
-    if (flashEnabled && S.mode === 'exposure') {
+
+    // C: friss por/karc minta a mentéshez (ne a befagyott élőkép-minta mentődjön)
+    if (dustActive) { dustSeed = Math.random(); }
+
+    // Hardveres Torch villantás fotó módban — csak ha a track ténylegesen támogatja
+    let torchTrack = null;
+    if (flashEnabled && S.mode === 'exposure' && S.stream) {
       const track = S.stream.getVideoTracks()[0];
-      if (track) {
-        try { await track.applyConstraints({ advanced: [{ torch: true }] });
-              // Rövid várakozás a LED bemelegedésére
-              await new Promise(resolve => setTimeout(resolve, 50)); 
-        } catch (_) {}
+      if (track && trackSupportsTorch(track)) {
+        try {
+          await track.applyConstraints({ advanced: [{ torch: true }] });
+          torchTrack = track;
+          // Megvárjuk, hogy a megvilágítás tényleg megjelenjen a videóstreamben
+          // (LED felfutás + auto-exposure átállás), különben sötét frame mentődne
+          await waitForVideoFrames(3);
+        } catch (_) { torchTrack = null; }
       }
     }
     
@@ -648,12 +692,9 @@ async function capture(){
     const pixels=new Uint8Array(glW*glH*4);
     gl.readPixels(0,0,glW,glH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
     
-    // Pixelolvasás után azonnal lekapcsoljuk az ideiglenes Torch vakut
-    if (flashEnabled && S.mode === 'exposure') {
-      const track = S.stream.getVideoTracks()[0];
-      if (track) {
-        try { await track.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
-      }
+    // A megvilágított frame textúra-feltöltése és pixelolvasás után kapcsoljuk le a Torch-ot
+    if (torchTrack) {
+      try { await torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
     }
 
     const flipped=new Uint8Array(glW*glH*4);
@@ -688,10 +729,11 @@ async function capture(){
       
       if (frame === 'antik') {
         const ds = getRetroDateString();
-        sCtx.font=`bold ${fs}px Georgia, serif`; sCtx.textAlign='center';
+        const afs = Math.max(11, photoS*.028|0); // Kisebb méret az Antik kerethez
+        sCtx.font=`normal ${afs}px Georgia, serif`; sCtx.textAlign='center'; // Normál (nem bold) súly
         const tx = cw / 2;
         // Vizuális maszkoló sáv fölé tolva (de nem takarva a keret PNG object-fit miatt)
-        const ty = ch - Math.round(OUT * 0.13) + fs * 0.2; 
+        const ty = ch - Math.round(OUT * 0.13) + afs * 0.2; 
         sCtx.fillStyle='#2a2a2a'; // Nagyon sötétszürke
         sCtx.fillText(ds,tx,ty);
       } else {

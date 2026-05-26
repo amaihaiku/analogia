@@ -95,7 +95,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 /* JAVÍTVA: Élő keresőben látható intelligens dátumbélyegző stíluslapja finomhangolva */
 .live-date {
   position: absolute; z-index: 10; pointer-events: none;
-  font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
   transition: all 0.1s ease;
 }
 
@@ -198,7 +198,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
   background: radial-gradient(circle at 38% 32%, #fbc531 0%, var(--gold) 60%, #8c7332 100%);
 }
 
-.btn-text {font-size:10px;font-weight:bold;font-family:var(--font);color:var(--muted);letter-spacing:0.05em;line-height:1}
+.btn-text {font-size:10px;font-weight:bold;font-family:var(--font);color:var(--gold);letter-spacing:0.05em;line-height:1}
 .action-btn.active .btn-text {color:var(--gold);text-shadow:0 0 4px var(--gold-glow)}
 .btn-led {width:5px;height:5px;border-radius:50%;background:var(--dim);transition:all 0.15s}
 .action-btn.active .btn-led {background:var(--gold);box-shadow:0 0 6px var(--gold)}
