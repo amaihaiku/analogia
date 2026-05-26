@@ -6,7 +6,6 @@
    completeness binder, standalone installation routing.
 ═══════════════════════════════════════ */
 
-// IDE ÍRD BE AZ ÚJONNAN LÉTREHOZOTT SZŰRŐFÁJLOK NEVÉT A FILTERS/ MAPPA ALATT:
 const AVAILABLE_FILTERS = ['kodachrome', 'kodak_portra', 'fuji_velvia', 'cinestill', 'teal_orange', 'bleach', 'cross', 'highcontrast_bw', 'l_monochrome', 'infrared'];
 
 const S={
@@ -25,7 +24,10 @@ let videoDevices = [];
 let currentDeviceIndex = 0;
 let deferredPrompt = null;
 
-// Explicit DOM elem szelektorok a biztonságos futásért
+// Aktuális fotó ideiglenes tárolói az explicit gombos mentéshez
+let activeBlobUrl = null;
+let activeFilename = "";
+
 const vid = document.getElementById('vid');
 const glCv = document.getElementById('gl-canvas');
 
@@ -423,6 +425,22 @@ function getSelectedFrame() {
   return activeRadio ? activeRadio.value : 'none';
 }
 
+// Élő képkeret-előnézet szinkronizálása a kijelzőn
+function updateLiveFramePreview() {
+  const frame = getSelectedFrame();
+  const filmFrame = document.getElementById('preview-frame-film');
+  const antikFrame = document.getElementById('preview-frame-antik');
+  
+  if (filmFrame) filmFrame.classList.add('hidden');
+  if (antikFrame) antikFrame.classList.add('hidden');
+  
+  if (frame === 'film' && filmFrame) {
+    filmFrame.classList.remove('hidden');
+  } else if (frame === 'antik' && antikFrame) {
+    antikFrame.classList.remove('hidden');
+  }
+}
+
 function triggerMechanicalShutter(callback) {
   const blink = document.getElementById('shutter-blink');
   if(!blink) return callback();
@@ -532,13 +550,24 @@ async function capture(){
       sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
     }
 
+    // JAVÍTVA: Keret-kompatibilis intelligens dátum elhelyezés
     const dateTog = document.getElementById('date-tog');
     if(dateTog && dateTog.checked){
       const now=new Date(),p=n=>String(n).padStart(2,'0');
       const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
       const fs=Math.max(14,photoS*.036|0);
       sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
-      const tx=photoX+photoS-fs*.4,ty=photoY+photoS-fs*.5;
+      
+      let tx=photoX+photoS-fs*.4;
+      let ty=photoY+photoS-fs*.5;
+      
+      if (frame === 'film') {
+        ty = photoY + photoS - Math.round(OUT * .13) - fs * .4; // Filmcsík fekete sávja fölé tolás
+      } else if (frame === 'antik') {
+        tx = photoX + photoS - fs * 1.3; // Beljebb igazítás az indák miatt
+        ty = photoY + photoS - fs * 1.3;
+      }
+      
       sCtx.fillStyle='rgba(0,0,0,.4)';sCtx.fillText(ds,tx+2,ty+2);
       sCtx.fillStyle=(frame==='antik')?'#7a6440':'#e8830a';
       sCtx.fillText(ds,tx,ty);
@@ -555,17 +584,21 @@ async function capture(){
       const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
       const fname=`Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.jpg`;
       
-      if(S.lastPhotoUrl)URL.revokeObjectURL(S.lastPhotoUrl);
+      if(S.lastPhotoUrl) URL.revokeObjectURL(S.lastPhotoUrl);
       const url=URL.createObjectURL(blob);
+      S.lastPhotoUrl = url;
       
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fname;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      // Globális adatok rögzítése a manuális gombhoz
+      activeBlobUrl = url;
+      activeFilename = fname;
       
-      setTimeout(() => URL.revokeObjectURL(url), 1200);
+      // JAVÍTVA (Version A): In-App előnézeti galéria megnyitása a kéretlen letöltések helyett
+      const previewImg = document.getElementById('photo-preview-img');
+      const photoOverlay = document.getElementById('photo-overlay');
+      if (previewImg && photoOverlay) {
+        previewImg.src = url;
+        photoOverlay.classList.remove('hidden');
+      }
       
       if(S.deActive) {
         S.deStage = 0;
@@ -651,6 +684,33 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
 const deTogBtn = document.getElementById('de-toggle-btn'); if(deTogBtn) deTogBtn.addEventListener('click', toggleDoubleExposure);
 const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTogBtn.addEventListener('click', cycleCamera);
 
+// Keretválasztó rádiógombok eseményfigyelése az élő kép maszkolásához
+document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
+  radio.addEventListener('change', updateLiveFramePreview);
+});
+
+// Dedikált In-App Előnézeti Galéria Gombkezelők
+const photoSaveBtn = document.getElementById('photo-save-btn');
+if (photoSaveBtn) {
+  photoSaveBtn.onclick = () => {
+    if (!activeBlobUrl) return;
+    const a = document.createElement('a');
+    a.href = activeBlobUrl;
+    a.download = activeFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+}
+
+const photoCloseBtn = document.getElementById('photo-overlay-close');
+if (photoCloseBtn) {
+  photoCloseBtn.onclick = () => {
+    const photoOverlay = document.getElementById('photo-overlay');
+    if (photoOverlay) photoOverlay.classList.add('hidden');
+  };
+}
+
 const natInstBtn = document.getElementById('native-install-btn');
 if (natInstBtn) {
   natInstBtn.addEventListener('click', async () => {
@@ -683,8 +743,6 @@ if (natInstBtn) {
     }
   });
 }
-
-const cancInstBtn = document.getElementById('cancel-install-btn'); if(cancInstBtn) cancInstBtn.addEventListener('click', () => { window.close(); });
 
 const exitBtn = document.getElementById('exit-btn');
 if (exitBtn) {
@@ -744,6 +802,7 @@ window.addEventListener('appinstalled', () => {
     const fl = document.getElementById('film-label'); if(fl) fl.textContent = PROF['kodachrome'].name;
   }
   syncDial();
+  updateLiveFramePreview();
   await listVideoDevices();
   if(navigator.mediaDevices?.getUserMedia) initCam();
   else { const pe = document.getElementById('perm-err'); if(pe) pe.textContent='Kamera API nem támogatott.'; }
