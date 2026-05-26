@@ -17,7 +17,6 @@
 </head>
 <body>
 
-<!-- ROTATE OVERLAY -->
 <div id="rotate-overlay" class="rotate-overlay hidden">
   <div class="rotate-content">
     <div class="rotate-icon">⟳</div>
@@ -26,7 +25,6 @@
   </div>
 </div>
 
-<!-- PHOTO PREVIEW OVERLAY (save by long press) -->
 <div id="photo-overlay" class="photo-overlay hidden">
   <div class="photo-overlay-bg" id="photo-overlay-bg"></div>
   <div class="photo-overlay-content">
@@ -41,7 +39,17 @@
   </div>
 </div>
 
-<!-- SAVING OVERLAY -->
+<div id="gallery-modal" class="modal hidden">
+  <div class="modal-backdrop" id="gallery-backdrop"></div>
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">ANALOGIA ALBUM</span>
+      <button class="modal-close" id="gallery-close">✕</button>
+    </div>
+    <div class="gallery-grid" id="gallery-grid"></div>
+  </div>
+</div>
+
 <div id="saving-overlay" class="saving-overlay hidden">
   <div class="saving-box">
     <div class="saving-spinner"></div>
@@ -49,7 +57,6 @@
   </div>
 </div>
 
-<!-- FILM MODAL -->
 <div id="film-modal" class="modal hidden">
   <div class="modal-backdrop" id="modal-backdrop"></div>
   <div class="modal-box">
@@ -68,7 +75,6 @@
 
 <div class="shell">
 
-  <!-- TOPBAR -->
   <header class="topbar">
     <div class="brand-wrap">
       <span class="brand">Analogia</span>
@@ -79,10 +85,10 @@
       <span class="film-btn-arrow">▾</span>
     </button>
     <div class="hud-right">
+      <button class="exit-btn" id="exit-btn" title="Kilépés">✕</button>
     </div>
   </header>
 
-  <!-- VIEWFINDER 1:1 -->
   <div class="vf-wrap">
     <div class="vf-bezel">
       <div class="bc tl"></div><div class="bc tr"></div>
@@ -104,7 +110,6 @@
     </div>
   </div>
 
-  <!-- BOTTOM CONTROLS -->
   <div class="ctrl-bottom">
 
     <div class="mode-bar">
@@ -129,15 +134,24 @@
         </label>
         <span class="tog-lbl">DÁTUM</span>
       </div>
-      <select class="frame-sel" id="frame-sel">
-        <option value="none">— Keret —</option>
-        <option value="antik">Antik</option>
-        <option value="polaroid">Polaroid</option>
-        <option value="film">Film Strip</option>
-      </select>
+      <div class="selectors-stack">
+        <select class="frame-sel" id="frame-sel">
+          <option value="none">— Keret —</option>
+          <option value="antik">Antik</option>
+          <option value="polaroid">Polaroid</option>
+          <option value="film">Film Strip</option>
+        </select>
+        <select class="frame-sel" id="cam-sel">
+          <option value="">Kamera betöltése...</option>
+        </select>
+      </div>
     </div>
 
     <div class="shutter-row">
+      <div class="thumb-btn" id="thumb-btn" title="Analogia Album">
+        <img id="thumb-img" class="hidden" alt="Miniatűr"/>
+        <div id="thumb-placeholder"></div>
+      </div>
       <button class="shutter" id="shutter">
         <span class="sh-ring"></span>
         <span class="sh-core"></span>

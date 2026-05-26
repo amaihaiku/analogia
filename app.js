@@ -1,9 +1,9 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v11 (Pseudo-RAW Update)
-   Fixes: Linear space exposure, bidirectional 
-   shadows/highlights, perfect dial centering.
-   Updated: 10 precise film emulation profiles.
+   ANALOGIA — app.js v12 (Full Feature Update)
+   Fixes: Exact slider center mapping (-7px),
+   multi-camera management, live internal album,
+   exit handler, non-pinchable gallery asset.
 ═══════════════════════════════════════ */
 
 const S={
@@ -14,7 +14,10 @@ const S={
   mode:'exposure',
   vidW:1,vidH:1,
   lastPhotoUrl:null,
+  gallery:[]
 };
+
+let currentDeviceId = null;
 
 /* ── Film profiles ── */
 function scv(x,p,c){const t=x-p;return t/Math.sqrt(1+(c*t)*(c*t))+p;}
@@ -156,35 +159,23 @@ void main(){
   vec2 vuv=cropUV(v_uv);
   if(any(lessThan(vuv,vec2(0.)))||any(greaterThan(vuv,vec2(1.)))){gl_FragColor=vec4(0.,0.,0.,1.);return;}
   
-  // 1. Nyers sRGB kamerakép beolvasása
   vec3 srgbIn = texture2D(u_vid_tex,vuv).rgb;
-  
-  // 2. Dekódolás lineáris térbe ("Pseudo-RAW" állapot a torzításmentes expozícióhoz)
   vec3 linear = pow(srgbIn, vec3(2.2));
-  
-  // 3. Valódi fizikai alapú expozíció szorzás lineáris térben
   linear *= u_ev;
   
-  // 4. Lineáris luminancia kiszámítása a maszkoláshoz
   float linLum = dot(linear, vec3(0.2126, 0.7152, 0.0722));
   
-  // 5. Kétirányú Árnyék (Shadows) kezelése hatványgörbével (Crush / Lift)
   float shadowMask = 1.0 - smoothstep(0.0, 0.4, linLum);
   float shadowFactor = 1.0 - u_shadows * 0.5;
   linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(shadowFactor)), shadowMask);
   
-  // 6. Kétirányú Csúcsfény (Highlights) kezelése hatványgörbével (Recover / Boost)
   float highlightMask = smoothstep(0.5, 1.0, linLum);
   float highlightFactor = 1.0 - u_highlights * 0.4;
   linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(highlightFactor)), highlightMask);
   
-  // 7. Visszakódolás sRGB-re a LUT filmprofil bemenetéhez
   vec3 srgbProcessed = pow(clamp(linear, 0.0, 1.0), vec3(1.0 / 2.2));
-  
-  // 8. Film emulációs profil alkalmazása
   vec3 col = applyLUT(srgbProcessed);
   
-  // 9. Laboratóriumi utómunka (Tone, Vignette, Grain) a kész filmkockán
   col.r+=u_tone*0.12;
   col.g+=u_tone*0.04;
   col.b-=u_tone*0.15;
@@ -267,7 +258,7 @@ const MODES={
   grain:      {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
   vignette:   {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
 };
-const TPX=14; // CSS mérethez igazítva (2px ticks + 2 * 6px margin = 14px pixelenként)
+const TPX=14; 
 let ddrag=false,dlast=0,doff=0;
 
 function nT(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
@@ -297,9 +288,11 @@ function buildDial(){
   const centerLine=document.querySelector('.dial-center-h');
   if(dialWrap&&centerLine)centerLine.style.left=dialWrap.clientWidth/2+'px';
 }
-function syncDial(){const v=getV(),o=v2o(v);doff=o;const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${o}px)`;updHUD(v);}
+
+/* Matematikai finomhangolás: a -7px pontosan kiegyenlíti a ticks belső margóit a sárga hajszálvonal alatt */
+function syncDial(){const v=getV(),o=v2o(v);doff=o;const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${o - 7}px)`;updHUD(v);}
 function updHUD(v){const m=MODES[S.mode],f=m.fmt(v);document.getElementById('hud-mode-val').textContent=f;document.getElementById('hud-mode-name').textContent=S.mode.toUpperCase();}
-function dMove(dx){doff+=dx;const v=setV(o2v(doff));doff=v2o(v);const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${doff}px)`;updHUD(v);}
+function dMove(dx){doff+=dx;const v=setV(o2v(doff));doff=v2o(v);const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${doff - 7}px)`;updHUD(v);}
 
 const dialEl=document.getElementById('dial-wrap');
 dialEl.addEventListener('pointerdown',e=>{ddrag=true;dlast=e.clientX;dialEl.setPointerCapture(e.pointerId);},{passive:true});
@@ -444,6 +437,47 @@ document.getElementById('lut-upload').addEventListener('change',async e=>{
   catch(err){alert('LUT hiba: '+err.message);}e.target.value='';
 });
 
+/* ── INTERN ALBUM CORE ── */
+function initAlbumStorage() {
+  try { S.gallery = JSON.parse(localStorage.getItem('analogia_album_data') || '[]'); } catch(_) { S.gallery = []; }
+  syncThumbUI();
+}
+
+function syncThumbUI() {
+  const img = document.getElementById('thumb-img');
+  const plc = document.getElementById('thumb-placeholder');
+  if (S.gallery.length > 0) {
+    img.src = S.gallery[S.gallery.length - 1];
+    img.classList.remove('hidden');
+    plc.classList.add('hidden');
+  } else {
+    img.classList.add('hidden');
+    plc.classList.remove('hidden');
+  }
+}
+
+function openGalleryModal() {
+  const grid = document.getElementById('gallery-grid');
+  grid.innerHTML = '';
+  if (S.gallery.length === 0) {
+    grid.innerHTML = '<div style="grid-column:span 3;text-align:center;font-size:11px;color:var(--muted);padding:40px 0;">Az Analogia album üres</div>';
+  } else {
+    [...S.gallery].reverse().forEach(src => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'gallery-item';
+      const img = document.createElement('img');
+      img.src = src;
+      wrapper.appendChild(img);
+      grid.appendChild(wrapper);
+    });
+  }
+  document.getElementById('gallery-modal').classList.remove('hidden');
+}
+
+function closeGalleryModal() {
+  document.getElementById('gallery-modal').classList.add('hidden');
+}
+
 /* ── CAPTURE ── */
 function c255(v){return Math.max(0,Math.min(255,v+.5|0));}
 function cpuLUT(r,g,b,ld){
@@ -546,10 +580,22 @@ async function capture(){
     sCtx.fillText('by Analogia',photoX+photoS-Math.round(OUT*.02),ch-Math.round((ch-photoY-photoS)/2+fs*.3));
   }
 
+  // Mentés szoftveres albumba (Kompaktált minőségű másolat a helytakarékosság miatt)
+  try {
+    const albumDataUrl = sv.toDataURL('image/jpeg', 0.72);
+    S.gallery.push(albumDataUrl);
+    if (S.gallery.length > 15) S.gallery.shift(); // Max 15 elem a böngésző quota védelmében
+    localStorage.setItem('analogia_album_data', JSON.stringify(S.gallery));
+    syncThumbUI();
+  } catch(_) {}
+
   sv.toBlob(blob=>{
     const now=new Date(),p=n=>String(n).padStart(2,'0');
     const nm=(PROF[S.simKey]?.name||'CUSTOM').replace(/[ &]/g,'_');
-    const fname=`Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.jpg`;
+    
+    // Fájlnév kiegészítés az album mappaszerkezet könnyítésére
+    const fname=`Analogia/Analogia_${nm}_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.jpg`;
+    
     if(S.lastPhotoUrl)URL.revokeObjectURL(S.lastPhotoUrl);
     const url=URL.createObjectURL(blob);
     showSaving(false);
@@ -572,20 +618,59 @@ function drawFilm(c,W,H,sh){
   });
 }
 
-/* ── Camera ── */
-async function initCam(){
+/* ── Camera Hardware Controller ── */
+async function updateCameraDevices() {
+  const select = document.getElementById('cam-sel');
+  if(!select) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+    select.innerHTML = '';
+    if(videoDevices.length === 0) {
+      select.innerHTML = '<option value="">Nincs kamera</option>';
+      return;
+    }
+    videoDevices.forEach((device, index) => {
+      const opt = document.createElement('option');
+      opt.value = device.deviceId;
+      opt.textContent = device.label || `Kamera ${index + 1}`;
+      if(currentDeviceId === device.deviceId) opt.selected = true;
+      select.appendChild(opt);
+    });
+  } catch(_) {}
+}
+
+async function initCam(preferredDeviceId = null){
+  if(S.stream) {
+    S.stream.getTracks().forEach(track => track.stop());
+  }
   try{
-    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1920}},audio:false});
+    const constraints = {
+      audio:false,
+      video:{
+        width:{ideal:1920},
+        height:{ideal:1920}
+      }
+    };
+    if (preferredDeviceId) {
+      constraints.video.deviceId = { exact: preferredDeviceId };
+    } else {
+      constraints.video.facingMode = { ideal: 'environment' };
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     S.stream=stream;vid.srcObject=stream;
     vid.addEventListener('loadedmetadata',()=>{
       S.ready=true;
       const tk=stream.getVideoTracks()[0],st=tk.getSettings();
+      currentDeviceId = st.deviceId || null;
       S.vidW=st.width||vid.videoWidth;S.vidH=st.height||vid.videoHeight;
       vid.play().catch(()=>{});
       document.getElementById('hud-res').textContent=S.vidW+'×'+S.vidH;
       document.getElementById('noperm').style.display='none';
       tk.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
       render();
+      updateCameraDevices();
     },{once:true});
   }catch(e){
     document.getElementById('perm-err').textContent=e.name==='NotAllowedError'?'Engedély megtagadva.':e.name==='NotFoundError'?'Nincs kamera.':'Kamera hiba.';
@@ -608,8 +693,16 @@ function unlockOverlayZoom() {
   overlay.style.touchAction = '';
 }
 
+function lockGalleryZoom() {
+  const gModal = document.getElementById('gallery-modal');
+  gModal.style.touchAction = 'none';
+  gModal.addEventListener('gesturestart', _pzPreventNative, { passive: false });
+  gModal.addEventListener('gesturechange', _pzPreventNative, { passive: false });
+  gModal.addEventListener('touchmove', _pzPreventNative, { passive: false });
+}
+
 /* ── Events ── */
-document.getElementById('perm-btn').addEventListener('click',initCam);
+document.getElementById('perm-btn').addEventListener('click',() => initCam());
 document.getElementById('shutter').addEventListener('click',capture);
 
 document.querySelectorAll('.mode-btn').forEach(btn=>{
@@ -617,6 +710,27 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
     document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');S.mode=btn.dataset.mode;buildDial();syncDial();
   });
+});
+
+document.getElementById('cam-sel').addEventListener('change', e => {
+  if(e.target.value) initCam(e.target.value);
+});
+
+document.getElementById('thumb-btn').addEventListener('click', openGalleryModal);
+document.getElementById('gallery-close').addEventListener('click', closeGalleryModal);
+document.getElementById('gallery-backdrop').addEventListener('click', closeGalleryModal);
+
+document.getElementById('exit-btn').addEventListener('click', () => {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(()=>{});
+  } else {
+    if(S.stream) {
+      S.stream.getTracks().forEach(t=>t.stop());
+      S.ready = false;
+      document.getElementById('noperm').style.display = 'flex';
+    }
+    window.close();
+  }
 });
 
 document.getElementById('photo-overlay-bg').addEventListener('click',()=>{
@@ -671,7 +785,9 @@ document.addEventListener('touchmove', e => {
   });
 
   buildDial();syncDial();uploadLUT(PROF['kodachrome'].lut);
+  initAlbumStorage();
+  lockGalleryZoom();
   await tryLoadLuts();
-  if(navigator.mediaDevices?.getUserMedia)initCam();
+  if(navigator.mediaDevices?.getUserMedia) initCam();
   else document.getElementById('perm-err').textContent='Kamera API nem támogatott.';
 })();
