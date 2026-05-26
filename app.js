@@ -28,7 +28,7 @@ let activeBlobUrl = null;
 let activeFilename = "";
 
 // Új állapottárolók a vaku és FX funkciókhoz
-let torchActive = false;
+let flashEnabled = false;
 let dustActive = false;
 let dustSeed = 0.0;
 let lastDustTime = 0;
@@ -101,7 +101,7 @@ async function loadExternalFilters() {
 const VS=`attribute vec2 a_pos;varying vec2 v_uv;
 void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.);}`;
 
-// JAVÍTVA: Por és Karc (FX) procedurális matematikai shader rendereléssel bővítve
+// JAVÍTVA: Finomhangolt Por és Karc (FX) procedurális matematikai shader renderelés (ritkább por, kevesebb fényesedés)
 const FS=`precision mediump float;
 varying vec2 v_uv;
 uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;uniform sampler2D u_de_tex;
@@ -172,16 +172,16 @@ void main(){
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);float n=(fbm(nuv)-.5)*2.;col=clamp(col*(1.+n*u_grain*.45*gc(lum)),0.,1.);}
   
-  // Élő procedurális por és karc számítás
+  // Élő procedurális por és karc számítás - Finomhangolva diafilm-szerűre
   if(u_dust_active > 0.5) {
     float dNoise = h2(floor(vuv * u_cvs_sz / 2.0) + u_dust_seed * 73.0);
-    if (dNoise > 0.9991) {
+    if (dNoise > 0.9997) { // Ritkább por
       col *= 0.15;
-    } else if (dNoise < 0.0006) {
-      col += vec3(0.35);
+    } else if (dNoise < 0.0015) { // Több szösz
+      col += vec3(0.15); // Finomabb fényesedés
     }
     float sX = h2(vec2(floor(vuv.x * u_cvs_sz.x * 0.85), u_dust_seed * 19.7));
-    if (sX > 0.9975) {
+    if (sX > 0.9990) { // Ritkább karcok
       float sY = sn(vec2(u_dust_seed * 5.0, vuv.y * 12.0));
       if (sY > 0.15) {
         col = mix(col, vec3(0.12), 0.65);
@@ -474,16 +474,16 @@ function updateLiveFramePreview() {
   }
 }
 
-// JAVÍTVA: 1920-as évekbeli formázott dátumszöveg generátor
+// JAVÍTVA: 1920-as évekbeli formázott dátumszöveg generátor, retro tagolással (éé oo 'év)
 function getRetroDateString() {
   const now = new Date(), p = n => String(n).padStart(2, '0');
   const dd = p(now.getDate());
   const mm = p(now.getMonth() + 1);
   const yy = String(now.getFullYear()).slice(-2);
-  return `Anno ${dd}${mm} '${yy}`;
+  return `Anno ${dd} ${mm} '${yy}`;
 }
 
-// JAVÍTVA: Valós idejű élő dátum overlay maszk-kompatibilis pozicionálója
+// JAVÍTVA: Valós idejű élő dátum overlay maszk-kompatibilis pozicionálója finomhangolva az Antik kerethez (kisebb, feljebb, középen, sötétebb)
 function updateLiveDate() {
   let el = document.getElementById('live-date');
   if (!el) {
@@ -504,14 +504,14 @@ function updateLiveDate() {
   
   if (frame === 'antik') {
     el.textContent = getRetroDateString();
-    el.style.bottom = '8px'; // Tökéletesen a maszkolt vizuális tartalom alá és középre helyezve
+    el.style.bottom = '12px'; // Feljebb toljuk az alsó maszkoló sáv tetejéhez igazítva
     el.style.left = '0';
     el.style.right = '0';
     el.style.width = '100%';
     el.style.textAlign = 'center';
-    el.style.color = '#2a2a2a'; // Nagyon sötétszürke, nem fekete
+    el.style.color = '#2a2a2a'; // Nagyon sötétszürke Serif font
     el.style.fontFamily = 'Georgia, serif';
-    el.style.fontSize = '15px';
+    el.style.fontSize = '14px'; // Kicsit kisebb Serif betűméret
   } else {
     const now = new Date(), p = n => String(n).padStart(2, '0');
     el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -532,22 +532,14 @@ function updateLiveDate() {
   el.classList.remove('hidden');
 }
 
-// JAVÍTVA: Hardveres vaku (Zseblámpa mód) kapcsoló motor
-async function toggleTorch() {
-  if (!S.stream) return;
-  const track = S.stream.getVideoTracks()[0];
-  if (!track) return;
-  
-  torchActive = !torchActive;
+// JAVÍTVA: Villanó Vaku (Flash Enabled) állapotkezelő motor - gomb és állapotvezérlés
+function toggleFlash() {
+  flashEnabled = !flashEnabled;
   const btn = document.getElementById('torch-toggle-btn');
-  if (btn) btn.classList.toggle('active', torchActive);
-  
-  try {
-    await track.applyConstraints({ advanced: [{ torch: torchActive }] });
-  } catch (_) {}
+  if (btn) btn.classList.toggle('active', flashEnabled);
 }
 
-// JAVÍTVA: Por és Karc (FX) állapotkezelő
+// JAVÍTVA: Por és Karc (FX) állapotkezelő motor
 function toggleDust() {
   dustActive = !dustActive;
   const btn = document.getElementById('dust-toggle-btn');
@@ -594,8 +586,21 @@ async function capture(){
     return; 
   }
 
+  // JAVÍTVA: Expozíció előtti hardveres vaku villanás szinkronizálása WebGL hívással
   triggerMechanicalShutter(async () => {
     S.saving=true;
+    
+    // Ideiglenes vaku villantás hardveres Torch bekapcsolással fotó módban
+    if (flashEnabled && S.mode === 'exposure') {
+      const track = S.stream.getVideoTracks()[0];
+      if (track) {
+        try { await track.applyConstraints({ advanced: [{ torch: true }] });
+              // Rövid várakozás a LED bemelegedésére
+              await new Promise(resolve => setTimeout(resolve, 50)); 
+        } catch (_) {}
+      }
+    }
+    
     const OUT=1080;
     const frame = getSelectedFrame();
     let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
@@ -643,6 +648,14 @@ async function capture(){
     const pixels=new Uint8Array(glW*glH*4);
     gl.readPixels(0,0,glW,glH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
     
+    // Pixelolvasás után azonnal lekapcsoljuk az ideiglenes Torch vakut
+    if (flashEnabled && S.mode === 'exposure') {
+      const track = S.stream.getVideoTracks()[0];
+      if (track) {
+        try { await track.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
+      }
+    }
+
     const flipped=new Uint8Array(glW*glH*4);
     for(let row=0;row<glH;row++){
       const src=(glH-1-row)*glW*4,dst=row*glW*4;
@@ -667,7 +680,7 @@ async function capture(){
       drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
     }
 
-    // JAVÍTVA: 1920-as Antik dátumozás rásütése középre igazítva és védve a kitakarástól
+    // JAVÍTVA: 1920-as Antik dátumozás rásütése középre igazítva és védve a kitakarástól (sötétebb, feljebb, tagolva)
     const dateTog = document.getElementById('date-tog');
     if(dateTog && dateTog.checked){
       const now=new Date(),p=n=>String(n).padStart(2,'0');
@@ -677,8 +690,9 @@ async function capture(){
         const ds = getRetroDateString();
         sCtx.font=`bold ${fs}px Georgia, serif`; sCtx.textAlign='center';
         const tx = cw / 2;
-        const ty = ch - fs * 0.4;
-        sCtx.fillStyle='#2a2a2a';
+        // Vizuális maszkoló sáv fölé tolva (de nem takarva a keret PNG object-fit miatt)
+        const ty = ch - Math.round(OUT * 0.13) + fs * 0.2; 
+        sCtx.fillStyle='#2a2a2a'; // Nagyon sötétszürke
         sCtx.fillText(ds,tx,ty);
       } else {
         const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -761,10 +775,6 @@ async function listVideoDevices() {
 async function cycleCamera() {
   if (videoDevices.length <= 1) await listVideoDevices();
   if (videoDevices.length <= 1) return;
-  
-  // Biztonsági reset: kamera váltásakor lekapcsoljuk a vakut a hibák elkerülésére
-  if (torchActive) await toggleTorch();
-  
   currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
   const nextDevice = videoDevices[currentDeviceIndex];
   if (nextDevice) await initCam(nextDevice.deviceId);
@@ -816,11 +826,10 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
   });
 });
 
+// JAVÍTVA: Eseménykezelők bekötése az új vízszintes akciósáv gombjaihoz
 const deTogBtn = document.getElementById('de-toggle-btn'); if(deTogBtn) deTogBtn.addEventListener('click', toggleDoubleExposure);
 const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTogBtn.addEventListener('click', cycleCamera);
-
-// Eseménykezelők bekötése az új Vaku és FX gombokhoz
-const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleTorch);
+const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleFlash);
 const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) dustTogBtn.addEventListener('click', toggleDust);
 
 document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
@@ -835,7 +844,6 @@ if (dateTogEl) {
   dateTogEl.addEventListener('change', updateLiveDate);
 }
 
-// JAVÍTVA: Letöltés elindítása után az overlay ablak azonnal bezáródik
 const photoSaveBtn = document.getElementById('photo-save-btn');
 if (photoSaveBtn) {
   photoSaveBtn.onclick = () => {
