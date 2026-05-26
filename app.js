@@ -1,7 +1,7 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v17
-   Változások v17: valódi por+karc FX (fényerő-emelés nélkül),
+   ANALOGIA — app.js v18
+   Változások v18: valódi por+karc FX (fényerő-emelés nélkül),
    vaku időzítés javítva (megvilágított frame bevárása rVFC-vel),
    torch-képesség ellenőrzés, antik dátum normál font + kisebb,
    DE/FX gombfelirat arany, WYSIWYG film-dátum igazítás.
@@ -79,7 +79,7 @@ async function loadExternalFilters() {
   const promises = AVAILABLE_FILTERS.map(id => {
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = `filters/${id}.js?v=17`;
+      script.src = `filters/${id}.js?v=18`;
       script.onload = resolve;
       script.onerror = resolve; 
       document.head.appendChild(script);
@@ -103,7 +103,11 @@ const VS=`attribute vec2 a_pos;varying vec2 v_uv;
 void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.);}`;
 
 // JAVÍTVA: Finomhangolt Por és Karc (FX) procedurális matematikai shader renderelés (ritkább por, kevesebb fényesedés)
-const FS=`precision mediump float;
+const FS=`#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
 varying vec2 v_uv;
 uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;uniform sampler2D u_de_tex;
 uniform float u_lut_sz;uniform vec2 u_cvs_sz;uniform vec2 u_vid_sz;
@@ -174,25 +178,43 @@ void main(){
   if(u_grain>0.){float lum=dot(col,vec3(.299,.587,.114));vec2 nuv=v_uv*u_cvs_sz/(8./u_grain_sz)+vec2(u_time*.17,u_time*.13);float n=(fbm(nuv)-.5)*2.;col=clamp(col*(1.+n*u_grain*.45*gc(lum)),0.,1.);}
   
   // Élő procedurális por és karc — közepes, retro filmes hangulat (nem világosítja a képet)
+  // FONTOS: a hash bemenete normalizált, kis egész cellaszám, hogy mediump precízión is működjön.
   if(u_dust_active > 0.5) {
-    // Sötét porszemek: ritka, pontszerű sötét foltok a filmen lerakódott por szimulálására
-    float dCell = h2(floor(vuv * u_cvs_sz / 2.5) + u_dust_seed * 73.0);
-    if (dCell > 0.9985) {
-      col *= 0.35; // Erős sötét pötty (porszem árnyéka)
+    float seed = u_dust_seed;
+    // A por/karc a "filmsíkon" ül (képernyő-UV), nem a jeleneten -> zoomtól független
+    vec2 fuv = v_uv;
+
+    // --- Sötét porszemek ---
+    vec2 dGrid = floor(fuv * 90.0);
+    float dRand = h2(dGrid + vec2(seed * 37.0, seed * 91.0));
+    if (dRand > 0.975) {
+      vec2 dLocal = fract(fuv * 90.0) - 0.5;
+      float dDist = length(dLocal);
+      float dShape = h2(dGrid + 5.0);
+      if (dDist < 0.18 + dShape * 0.12) {
+        col *= 0.25;
+      }
     }
-    // Világos szöszök: ritka apró fehér pontok (filmpor a fényúton) — nem emeli a teljes képet
-    float lCell = h2(floor(vuv * u_cvs_sz / 3.5) + u_dust_seed * 51.0 + 17.0);
-    if (lCell > 0.99925) {
-      col = mix(col, vec3(0.85), 0.7); // Lokális világos pötty, nem globális emelés
+
+    // --- Világos szöszök/filmpor ---
+    vec2 lGrid = floor(fuv * 130.0);
+    float lRand = h2(lGrid + vec2(seed * 53.0 + 11.0, seed * 17.0 + 3.0));
+    if (lRand > 0.988) {
+      vec2 lLocal = fract(fuv * 130.0) - 0.5;
+      if (length(lLocal) < 0.22) {
+        col = mix(col, vec3(0.92), 0.8);
+      }
     }
-    // Függőleges karcok: vékony világos vonalak, ahogy a régi filmtekercsen
-    float scratchCol = floor(vuv.x * u_cvs_sz.x * 0.9);
-    float sPresent = h2(vec2(scratchCol, floor(u_dust_seed * 7.0)));
-    if (sPresent > 0.9955) {
-      // A karc nem fut végig: fbm-mel megszaggatjuk függőlegesen
-      float sLen = sn(vec2(scratchCol * 0.13, vuv.y * 6.0 + u_dust_seed * 3.0));
-      if (sLen > 0.45) {
-        col = mix(col, vec3(0.78), 0.45); // Halvány világos karcvonal
+
+    // --- Függőleges karcok ---
+    float sCol = floor(fuv.x * 70.0);
+    float sRand = h2(vec2(sCol, floor(seed * 11.0)));
+    if (sRand > 0.94) {
+      float sLocal = abs(fract(fuv.x * 70.0) - 0.5);
+      float sLen = sn(vec2(sCol * 1.3 + seed * 7.0, fuv.y * 5.0));
+      if (sLocal < 0.12 && sLen > 0.4) {
+        float bright = sRand > 0.97 ? 0.85 : 0.0;
+        col = mix(col, vec3(bright), 0.5);
       }
     }
   }
@@ -512,7 +534,7 @@ function updateLiveDate() {
   
   if (frame === 'antik') {
     el.textContent = getRetroDateString();
-    el.style.bottom = '12px'; // Feljebb toljuk az alsó maszkoló sáv tetejéhez igazítva
+    el.style.bottom = '20px'; // Feljebb tolva
     el.style.left = '0';
     el.style.right = '0';
     el.style.width = '100%';
@@ -520,7 +542,7 @@ function updateLiveDate() {
     el.style.color = '#2a2a2a'; // Nagyon sötétszürke Serif font
     el.style.fontFamily = 'Georgia, serif';
     el.style.fontWeight = 'normal'; // Antik kerethez normál (nem bold) súly
-    el.style.fontSize = '12px'; // Kisebb Serif betűméret
+    el.style.fontSize = '10px'; // Kisebb Serif betűméret
   } else {
     const now = new Date(), p = n => String(n).padStart(2, '0');
     el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
@@ -577,21 +599,35 @@ function triggerMechanicalShutter(callback) {
 
 function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
 
-// Megvárja, hogy a kamera N valódi videóframe-et adjon (pl. a torch megvilágítás megjelenjen a streamben).
-// rVFC-t használ ha elérhető, különben időzített fallback.
-function waitForVideoFrames(n) {
+// Megvárja, hogy a kamera friss, megvilágított frame-eket adjon a torch felfutása után.
+// Kombinált stratégia: legalább `minMs` idő ÉS lehetőség szerint `n` valódi videóframe is teljen el.
+// A torch LED felfutása + szenzor auto-exposure átállás jellemzően 150-300ms.
+function waitForVideoFrames(n, minMs) {
+  const startTime = performance.now();
+  const hasRVFC = vid && typeof vid.requestVideoFrameCallback === 'function';
   return new Promise(resolve => {
-    if (vid && typeof vid.requestVideoFrameCallback === 'function') {
-      let count = 0;
+    let framesSeen = 0;
+    let settled = false;
+    const done = () => { if (settled) return; settled = true; clearTimeout(minTimer); clearTimeout(hardTimer); resolve(); };
+
+    // Garantált minimum időablak (akkor is, ha rVFC nem tüzel megbízhatóan)
+    const minTimer = setTimeout(() => {
+      if (framesSeen >= n || !hasRVFC) done();
+    }, minMs);
+
+    // Biztonsági felső korlát, hogy soha ne ragadjon be
+    const hardTimer = setTimeout(done, minMs + 250);
+
+    if (hasRVFC) {
       const step = () => {
-        count++;
-        if (count >= n) resolve();
-        else vid.requestVideoFrameCallback(step);
+        framesSeen++;
+        if (framesSeen >= n && (performance.now() - startTime) >= minMs) {
+          done();
+        } else if (!settled) {
+          vid.requestVideoFrameCallback(step);
+        }
       };
       vid.requestVideoFrameCallback(step);
-    } else {
-      // Fallback: ~3 frame 30fps-nél ≈ 100ms, biztonsági ráhagyással
-      setTimeout(resolve, Math.max(100, n * 33));
     }
   });
 }
@@ -638,9 +674,10 @@ async function capture(){
         try {
           await track.applyConstraints({ advanced: [{ torch: true }] });
           torchTrack = track;
-          // Megvárjuk, hogy a megvilágítás tényleg megjelenjen a videóstreamben
-          // (LED felfutás + auto-exposure átállás), különben sötét frame mentődne
-          await waitForVideoFrames(3);
+          // Megvárjuk, hogy a megvilágítás tényleg beérjen a videóstreambe.
+          // A LED felfutása + auto-exposure átállás jellemzően 150-300ms,
+          // ezért min. 220ms ÉS legalább 5 friss videóframe kell.
+          await waitForVideoFrames(5, 220);
         } catch (_) { torchTrack = null; }
       }
     }
@@ -729,11 +766,11 @@ async function capture(){
       
       if (frame === 'antik') {
         const ds = getRetroDateString();
-        const afs = Math.max(11, photoS*.028|0); // Kisebb méret az Antik kerethez
+        const afs = Math.max(9, photoS*.022|0); // Kisebb méret az Antik kerethez
         sCtx.font=`normal ${afs}px Georgia, serif`; sCtx.textAlign='center'; // Normál (nem bold) súly
         const tx = cw / 2;
-        // Vizuális maszkoló sáv fölé tolva (de nem takarva a keret PNG object-fit miatt)
-        const ty = ch - Math.round(OUT * 0.13) + afs * 0.2; 
+        // Feljebb tolva a maszkoló sáv fölé
+        const ty = ch - Math.round(OUT * 0.155); 
         sCtx.fillStyle='#2a2a2a'; // Nagyon sötétszürke
         sCtx.fillText(ds,tx,ty);
       } else {
