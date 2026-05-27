@@ -219,10 +219,10 @@ void main(){
 let gl,prog,vtex,ltex,detex;
 const U={};
 
-// JAVÍTVA: a "lassan változó" uniformokat csak akkor töltjük fel, ha tényleg
-// megváltoztak (dirty flag), nem minden egyes képkockában.
-let uniformsDirty = true;
-function markUniformsDirty(){ uniformsDirty = true; }
+// A dirty-flag optimalizációt elhagytuk (lásd render()): az uniformok minden
+// frame-ben feltöltődnek. A markUniformsDirty így már no-op, de meghagyjuk,
+// hogy a meglévő hívásokat ne kelljen mindenhonnan kiszedni.
+function markUniformsDirty(){ /* no-op */ }
 
 function updateCanvasDimensions() {
   if (!glCv || !glCv.parentElement) return;
@@ -269,7 +269,18 @@ function initGL(){
   updateCanvasDimensions();
   return true;
 }
-function mkS(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){return null;}return s;}
+function mkS(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    // Korábban néma null-t adott vissza → fekete kép, ok nélkül.
+    // Most kiírjuk a fordítási hibát, hogy diagnosztizálható legyen.
+    console.error('Shader fordítási hiba:', gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
 function mkT(){
   const t=gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D,t);
@@ -304,32 +315,15 @@ function render(){
   // az FX-egyszerűsítés adja — ehhez a feltöltéshez nincs rá szükség.
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
 
-  // JAVÍTVA: a lassan változó uniformokat csak változáskor töltjük fel.
-  if (uniformsDirty) {
-    gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
-    gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
-    gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
-    gl.uniform1f(U.u_grain_sz,S.grainSize);
-    gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
+  // Az uniformokat minden frame-ben feltöltjük (mint az eredeti, működő kód).
+  // A dirty-flag alapú spórolást szándékosan elhagytuk: a nyereség elhanyagolható
+  // volt, viszont kockázatos — könnyen vezet "lemaradt" uniformhoz és fekete képhez.
+  gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
+  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
+  gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
+  gl.uniform1f(U.u_grain_sz,S.grainSize);
+  gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
 
-    gl.uniform1f(U.u_fx_active, window.FX.active ? 1.0 : 0.0);
-    gl.uniform1f(U.u_fx_intensity, window.FX.intensity);
-    gl.uniform1f(U.u_fx_scale, window.FX.scale);
-    gl.uniform1f(U.u_fx_stretch, window.FX.stretch);
-    gl.uniform1f(U.u_fx_angle, window.FX.angle);
-    gl.uniform1f(U.u_fx_overexposure, window.FX.overexposure);
-    gl.uniform1f(U.u_fx_hue, window.FX.hue);
-    gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
-    gl.uniform1f(U.u_fx_seed, window.FX.seed);
-    gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
-    // Élő előnézet: gyors FX-minőség (2 oktávos fBm, warp nélkül).
-    gl.uniform1f(U.u_fx_quality, 0.0);
-
-    uniformsDirty = false;
-  }
-
-  // A dupla expozíció textúra-kötése állapotfüggő, ezért marad minden frame-ben,
-  // de ez csak egy bind + 1 uniform, elhanyagolható költség.
   if (S.deActive && S.deStage === 1) {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, detex);
@@ -337,6 +331,19 @@ function render(){
   } else {
     gl.uniform1f(U.u_de_active, 0.0);
   }
+
+  gl.uniform1f(U.u_fx_active, window.FX.active ? 1.0 : 0.0);
+  gl.uniform1f(U.u_fx_intensity, window.FX.intensity);
+  gl.uniform1f(U.u_fx_scale, window.FX.scale);
+  gl.uniform1f(U.u_fx_stretch, window.FX.stretch);
+  gl.uniform1f(U.u_fx_angle, window.FX.angle);
+  gl.uniform1f(U.u_fx_overexposure, window.FX.overexposure);
+  gl.uniform1f(U.u_fx_hue, window.FX.hue);
+  gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
+  gl.uniform1f(U.u_fx_seed, window.FX.seed);
+  gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
+  // Élő előnézet: gyors FX-minőség (2 oktávos fBm, warp nélkül).
+  gl.uniform1f(U.u_fx_quality, 0.0);
 
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }

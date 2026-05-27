@@ -7,7 +7,7 @@
    - aktiváláskor a régi verziójú cache-ek törlődnek.
 ═══════════════════════════════════════ */
 
-const VERSION = 'v21';
+const VERSION = 'v25';
 const CACHE = 'analogia-' + VERSION;
 
 // Előre cache-elendő statikus elemek (a verziózott query nélkül is)
@@ -16,6 +16,7 @@ const PRECACHE = [
   './index.html',
   './style.css',
   './app.js',
+  './fx.js',
   './manifest.json',
   './antik_keret_web.png',
   './icon-512.png',
