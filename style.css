@@ -76,7 +76,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .vf-bezel{position:relative;width:100%;aspect-ratio:1/1;background:#000;border:2px solid var(--dim);overflow:hidden;box-shadow:inset 0 0 24px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.6)}
 #gl-canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
 
-/* Ritkább, fixen 5 lyukból álló matematikai felosztású élő filmcsík maszk */
 .preview-frame-film {
   position: absolute; inset: 0; pointer-events: none; z-index: 2;
   display: flex; flex-direction: column; justify-content: space-between;
@@ -92,7 +91,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .preview-frame-antik { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .preview-frame-antik img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-/* JAVÍTVA: Élő keresőben látható intelligens dátumbélyegző stíluslapja finomhangolva */
 .live-date {
   position: absolute; z-index: 10; pointer-events: none;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
@@ -168,7 +166,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .fr-lbl span{font-size:9px;font-weight:500;letter-spacing:0.05em;padding:4px 9px;color:var(--muted);border-radius:2px;transition:all 0.1s}
 .fr-lbl input:checked+span{background:var(--gold);color:var(--bg);font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.3)}
 
-/* JAVÍTVA: Új vízszintes akciósáv a dial alatt, egyenlő elosztással */
 .top-action-bar {
   display: flex; align-items: center; justify-content: space-around;
   padding: 10px 20px; background: var(--metal2); border-bottom: 1px solid var(--edge); flex-shrink: 0; gap: 10px;

@@ -1,10 +1,9 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v21
-   Változások v21: valódi por+karc FX (fényerő-emelés nélkül),
-   vaku időzítés javítva (megvilágított frame bevárása rVFC-vel),
-   torch-képesség ellenőrzés, antik dátum normál font + kisebb,
-   DE/FX gombfelirat arany, WYSIWYG film-dátum igazítás.
+   ANALOGIA — app.js v22
+   Változások v22: Chromatic Light Leak FX integrálva,
+   különálló fx.js importálással, új FX RND dobókocka gombbal,
+   régi karcolásos effekt eltávolítva.
 ═══════════════════════════════════════ */
 
 const AVAILABLE_FILTERS = ['kodachrome', 'kodak_portra', 'fuji_velvia', 'cinestill', 'teal_orange', 'bleach', 'cross', 'highcontrast_bw', 'l_monochrome', 'infrared'];
@@ -28,14 +27,26 @@ let deferredPrompt = null;
 let activeBlobUrl = null;
 let activeFilename = "";
 
-// Új állapottárolók a vaku és FX funkciókhoz
+// Új állapottárolók a vaku funkciókhoz
 let flashEnabled = false;
-let dustActive = false;
-let dustSeed = 0.0;
-let lastDustTime = 0;
 
 const vid = document.getElementById('vid');
 const glCv = document.getElementById('gl-canvas');
+
+// Analóg stílusú lebegő Toast értesítő rendszer
+function showToast(msg) {
+  let t = document.getElementById('anal-toast');
+  if(!t) {
+    t = document.createElement('div');
+    t.id = 'anal-toast';
+    t.style = "position:fixed;bottom:140px;left:50%;transform:translateX(-50%);background:rgba(20,18,16,0.92);border:1px solid var(--gold);color:var(--gold);font-family:var(--font);font-size:10px;letter-spacing:0.1em;padding:8px 16px;border-radius:4px;z-index:99999;transition:opacity 0.3s ease;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.5);";
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t.to);
+  t.to = setTimeout(() => { t.style.opacity = '0'; }, 1800);
+}
 
 function checkStandaloneGuard() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -102,7 +113,7 @@ async function loadExternalFilters() {
 const VS=`attribute vec2 a_pos;varying vec2 v_uv;
 void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.);}`;
 
-// JAVÍTVA: Finomhangolt Por és Karc (FX) procedurális matematikai shader renderelés (ritkább por, kevesebb fényesedés)
+// JAVÍTVA: A régi karcolásos effekt törölve, az új fizikai fényszivárgás modul uniformjai és logikája beépítve!
 const FS=`#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
 #else
@@ -115,8 +126,18 @@ uniform float u_zoom;uniform float u_ev;uniform float u_vig;
 uniform float u_grain;uniform float u_grain_sz;uniform float u_time;
 uniform float u_shadows;uniform float u_highlights;uniform float u_tone;
 uniform float u_de_active; 
-uniform float u_dust_active;
-uniform float u_dust_seed;
+
+// ── Fényszivárgás FX Uniformok ──
+uniform float u_fx_active;
+uniform float u_fx_intensity;
+uniform float u_fx_scale;
+uniform float u_fx_stretch;
+uniform float u_fx_angle;
+uniform float u_fx_overexposure;
+uniform float u_fx_hue;
+uniform float u_fx_speed;
+uniform vec2 u_fx_position;
+uniform float u_fx_seed;
 
 vec2 cropUV(vec2 uv){
   float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
@@ -147,6 +168,9 @@ float gn(vec2 p, float seed){
   float b = fract(sin(dot(q+vec2(1.3,2.7), vec2(269.5,183.3)))*43758.5453);
   return (a + b) - 1.0;
 }
+
+// ── Fényszivárgás zajfüggvények betöltése az fx.js-ből ──
+${window.FX && window.FX.shader ? window.FX.shader.helpers : ''}
 
 void main(){
   vec2 vuv = cropUV(v_uv);
@@ -180,67 +204,21 @@ void main(){
   col.b-=u_tone*0.15;
   col=clamp(col,0.0,1.0);
   
+  // ── Fényszivárgás meleg színkalkuláció betöltése az fx.js-ből ──
+  ${window.FX && window.FX.shader ? window.FX.shader.calculation : ''}
+  
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   
-if(u_grain>0.){
-  float lum=dot(col,vec3(.2126,.7152,.0722));
-  // ISO-csatolas: a grain csuszka egyszerre vezerli a meretet ES az erot
-  float gsize=mix(1.9,0.85,u_grain)*u_grain_sz;   // nagyobb grain -> durvabb szemcse
-  float gstr=u_grain*0.16;
-vec2 px=vec2(v_uv.x*u_cvs_sz.x, v_uv.y*u_cvs_sz.y)/gsize;  vec2 jit=vec2(u_time*5.0,u_time*3.0);            // diszkret ugras frame-enkent, nem "uszik"
-  float nr=gn(px+jit,11.0);
-  float ng=gn(px+jit,37.0);
-  float nb=gn(px+jit,71.0)*1.4;                    // kek reteg szemcsesebb (mint valodi filmen)
-  float shadowW=mix(1.25,0.45,smoothstep(0.0,1.0,lum)); // sotet tonusban erosebb
-  col=clamp(col+vec3(nr,ng,nb)*gstr*shadowW,0.,1.);
-}
-
-  // Élő procedurális por és karc — FINOM, rendezetlen, overlay jellegű (nem mesterkélt)
-  if(u_dust_active > 0.5) {
-    float seed = u_dust_seed;
-    vec2 fuv = v_uv; // a "filmsíkon" ül, zoomtól független
-
-    // --- Por: ritka, kicsi, véletlen pozícióban a cellán belül (nem rácsos) ---
-    vec2 dGrid = floor(fuv * 60.0);
-    float dRand = h2(dGrid + vec2(seed * 37.0, seed * 91.0));
-    if (dRand > 0.93) {
-      // véletlen pozíció a cellán belül -> megtöri a szabályos rácsot
-      vec2 dJit = vec2(h2(dGrid + 1.7), h2(dGrid + 9.3));
-      vec2 dLocal = fract(fuv * 60.0) - dJit;
-      float dDist = length(dLocal);
-      float dSize = 0.04 + h2(dGrid + 5.0) * 0.05; // apró pont
-      // lágy szélű, halvány sötétedés (nem kemény fekete pötty)
-      float dMask = 1.0 - smoothstep(dSize * 0.5, dSize, dDist);
-      col = mix(col, col * 0.55, dMask * 0.6);
-    }
-
-    // --- Ritka világos szösz ---
-    vec2 lGrid = floor(fuv * 80.0);
-    float lRand = h2(lGrid + vec2(seed * 53.0 + 11.0, seed * 17.0 + 3.0));
-    if (lRand > 0.985) {
-      vec2 lJit = vec2(h2(lGrid + 2.1), h2(lGrid + 7.7));
-      float lDist = length(fract(fuv * 80.0) - lJit);
-      float lMask = 1.0 - smoothstep(0.04, 0.09, lDist);
-      col = mix(col, vec3(0.85), lMask * 0.4); // halvány világos pont
-    }
-
-    // --- Karc: VÍZSZINTES, 2-4 az egész képen, dőlt, hullámzó, szaggatott, halvány ---
-    float sBand = floor(fuv.y * 24.0);
-    float sActive = h2(vec2(sBand, floor(seed * 13.0) + 0.5));
-    if (sActive > 0.85) {
-      // a karc nem tökéletesen vízszintes: x-től függő függőleges eltolás (dőlés + hullám)
-      float wobble = (sn(vec2(sBand * 3.1, fuv.x * 4.0 + seed * 2.0)) - 0.5) * 0.06;
-      float bandCenter = (sBand + 0.5) / 24.0 + wobble;
-      float dy = abs(fuv.y - bandCenter);
-      // szaggatottság vízszintesen (a karc nem fut végig)
-      float seg = sn(vec2(sBand * 2.0 + seed * 5.0, fuv.x * 7.0));
-      float thickness = 0.0014 + h2(vec2(sBand, 3.0)) * 0.0012;
-      if (dy < thickness && seg > 0.42) {
-        float scratchTone = h2(vec2(sBand, 8.0)) > 0.5 ? 0.85 : 0.05;
-        float sMask = (1.0 - smoothstep(thickness * 0.4, thickness, dy)) * smoothstep(0.42, 0.7, seg);
-        col = mix(col, vec3(scratchTone), sMask * 0.5);
-      }
-    }
+  if(u_grain>0.){
+    float lum=dot(col,vec3(.2126,.7152,.0722));
+    float gsize=mix(1.9,0.85,u_grain)*u_grain_sz;
+    float gstr=u_grain*0.16;
+    vec2 px=vec2(v_uv.x*u_cvs_sz.x, v_uv.y*u_cvs_sz.y)/gsize;  vec2 jit=vec2(u_time*5.0,u_time*3.0);
+    float nr=gn(px+jit,11.0);
+    float ng=gn(px+jit,37.0);
+    float nb=gn(px+jit,71.0)*1.4;
+    float shadowW=mix(1.25,0.45,smoothstep(0.0,1.0,lum));
+    col=clamp(col+vec3(nr,ng,nb)*gstr*shadowW,0.,1.);
   }
   
   gl_FragColor=vec4(col,1.);
@@ -268,7 +246,9 @@ function initGL(){
   gl.uniform1i(gl.getUniformLocation(prog,'u_lut_tex'),1);
   gl.uniform1i(gl.getUniformLocation(prog,'u_de_tex'),2);
   
-  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active', 'u_dust_active', 'u_dust_seed'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active',
+   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_speed', 'u_fx_position', 'u_fx_seed'
+  ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
   return true;
 }
@@ -319,14 +299,24 @@ function render(){
   gl.bindTexture(gl.TEXTURE_2D, (S.deActive && S.deStage === 1) ? detex : vtex);
   gl.uniform1f(U.u_de_active, (S.deActive && S.deStage === 1) ? 1.0 : 0.0);
   
-  // JAVÍTVA: Por és karc magsebesség frissítése mozi-szerű tempóra (másodpercenként ~7 váltás)
+  // ── Új fényszivárgás modul uniform átadása ──
+  gl.uniform1f(U.u_fx_active, window.FX.active ? 1.0 : 0.0);
+  gl.uniform1f(U.u_fx_intensity, window.FX.intensity);
+  gl.uniform1f(U.u_fx_scale, window.FX.scale);
+  gl.uniform1f(U.u_fx_stretch, window.FX.stretch);
+  gl.uniform1f(U.u_fx_angle, window.FX.angle);
+  gl.uniform1f(U.u_fx_overexposure, window.FX.overexposure);
+  gl.uniform1f(U.u_fx_hue, window.FX.hue);
+  gl.uniform1f(U.u_fx_speed, window.FX.speed);
+  gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
+  
+  // Organikus remegés / időbeli mintaváltás (7.4fps mozi-sebességre tervezve)
   const nowTime = performance.now();
-  if (dustActive && (nowTime - lastDustTime > 135)) {
-    dustSeed = Math.random();
-    lastDustTime = nowTime;
+  if (window.FX.active && (nowTime - window.FX.lastTime > 135)) {
+    window.FX.seed = Math.random();
+    window.FX.lastTime = nowTime;
   }
-  gl.uniform1f(U.u_dust_active, dustActive ? 1.0 : 0.0);
-  gl.uniform1f(U.u_dust_seed, dustSeed);
+  gl.uniform1f(U.u_fx_seed, window.FX.seed);
   
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
@@ -422,6 +412,19 @@ if (vfOverlay) {
     try { vfOverlay.releasePointerCapture(e.pointerId); } catch (_) {}
     if (vfPointers.has(e.pointerId) && vfPointers.size === 1 && !isPinching) {
       triggerVfFocus(e);
+      
+      /* ═══════════════════════════════════════
+         KIKOMMENTELT: FÉNYFORRÁS HELYÉNEK KÉPERNYŐRE BÖKÉSSEL VALÓ ÁTHELYEZÉSE
+         Ha a jövőben szeretnéd, hogy a felhasználók a képernyőre bökve a fényszivárgást is át tudják helyezni,
+         egyszerűen töröld ki a komment jeleket az alábbi blokkból:
+         
+         if (window.FX && window.FX.active) {
+           const r = vfOverlay.getBoundingClientRect();
+           const rx = (e.clientX - r.left) / r.width;
+           const ry = 1.0 - (e.clientY - r.top) / r.height; // Y tengely tükrözése WebGL-hez
+           window.FX.position = [rx, ry];
+         }
+         ═══════════════════════════════════════ */
     }
     vfPointers.delete(e.pointerId);
     if (vfPointers.size === 0) {
@@ -528,7 +531,6 @@ function updateLiveFramePreview() {
   }
 }
 
-// JAVÍTVA: 1920-as évekbeli formázott dátumszöveg generátor, retro tagolással (éé oo 'év)
 function getRetroDateString() {
   const now = new Date(), p = n => String(n).padStart(2, '0');
   const dd = p(now.getDate());
@@ -537,7 +539,6 @@ function getRetroDateString() {
   return `Anno ${dd} ${mm} '${yy}`;
 }
 
-// JAVÍTVA: Valós idejű élő dátum overlay maszk-kompatibilis pozicionálója finomhangolva az Antik kerethez (kisebb, feljebb, középen, sötétebb)
 function updateLiveDate() {
   let el = document.getElementById('live-date');
   if (!el) {
@@ -557,7 +558,6 @@ function updateLiveDate() {
   const frame = getSelectedFrame();
   
   if (frame === 'antik') {
-    // Antik keretnél nincs dátum
     el.classList.add('hidden');
     return;
   } else {
@@ -573,7 +573,7 @@ function updateLiveDate() {
     el.style.color = '#e8830a';
 
     if (frame === 'film') {
-      el.style.bottom = 'calc(13% + 12px)'; // Igazítva a mentett perforáció magasságához (WYSIWYG)
+      el.style.bottom = 'calc(13% + 12px)'; 
     } else {
       el.style.bottom = '12px';
     }
@@ -581,18 +581,23 @@ function updateLiveDate() {
   el.classList.remove('hidden');
 }
 
-// JAVÍTVA: Villanó Vaku (Flash Enabled) állapotkezelő motor - gomb és állapotvezérlés
 function toggleFlash() {
   flashEnabled = !flashEnabled;
   const btn = document.getElementById('torch-toggle-btn');
   if (btn) btn.classList.toggle('active', flashEnabled);
 }
 
-// JAVÍTVA: Por és Karc (FX) állapotkezelő motor
+// JAVÍTVA: Por és Karc (FX) állapotkezelő átalakítva a fényszivárgás modul vezérlésére
 function toggleDust() {
-  dustActive = !dustActive;
-  const btn = document.getElementById('dust-toggle-btn');
-  if (btn) btn.classList.toggle('active', dustActive);
+  if (window.FX) {
+    window.FX.active = !window.FX.active;
+    const btn = document.getElementById('dust-toggle-btn');
+    if (btn) btn.classList.toggle('active', window.FX.active);
+    
+    if (window.FX.active) {
+      window.FX.randomize();
+    }
+  }
 }
 
 function triggerMechanicalShutter(callback) {
@@ -616,9 +621,6 @@ function triggerMechanicalShutter(callback) {
 
 function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
 
-// Megvárja, hogy a kamera friss, megvilágított frame-eket adjon a torch felfutása után.
-// Kombinált stratégia: legalább `minMs` idő ÉS lehetőség szerint `n` valódi videóframe is teljen el.
-// A torch LED felfutása + szenzor auto-exposure átállás jellemzően 150-300ms.
 function waitForVideoFrames(n, minMs) {
   const startTime = performance.now();
   const hasRVFC = vid && typeof vid.requestVideoFrameCallback === 'function';
@@ -627,12 +629,10 @@ function waitForVideoFrames(n, minMs) {
     let settled = false;
     const done = () => { if (settled) return; settled = true; clearTimeout(minTimer); clearTimeout(hardTimer); resolve(); };
 
-    // Garantált minimum időablak (akkor is, ha rVFC nem tüzel megbízhatóan)
     const minTimer = setTimeout(() => {
       if (framesSeen >= n || !hasRVFC) done();
     }, minMs);
 
-    // Biztonsági felső korlát, hogy soha ne ragadjon be
     const hardTimer = setTimeout(done, minMs + 400);
 
     if (hasRVFC) {
@@ -649,7 +649,6 @@ function waitForVideoFrames(n, minMs) {
   });
 }
 
-// Igaz, ha az adott videótrack ténylegesen támogatja a hardveres torch-ot
 function trackSupportsTorch(track) {
   try {
     const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -676,14 +675,12 @@ async function capture(){
     return; 
   }
 
-  // JAVÍTVA: Expozíció előtti hardveres vaku villanás — a megvilágított frame bevárásával
   triggerMechanicalShutter(async () => {
     S.saving=true;
 
-    // C: friss por/karc minta a mentéshez (ne a befagyott élőkép-minta mentődjön)
-    if (dustActive) { dustSeed = Math.random(); }
+    // friss fényszivárgás minta a mentéshez
+    if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
 
-    // Hardveres Torch villantás fotó módban — csak ha a track ténylegesen támogatja
     let torchTrack = null;
     if (flashEnabled && S.mode === 'exposure' && S.stream) {
       const track = S.stream.getVideoTracks()[0];
@@ -691,9 +688,6 @@ async function capture(){
         try {
           await track.applyConstraints({ advanced: [{ torch: true }] });
           torchTrack = track;
-          // Megvárjuk, hogy a megvilágítás tényleg beérjen a videóstreambe.
-          // A LED felfutása + auto-exposure átállás egyes eszközökön (és Brave alatt)
-          // 300-450ms is lehet, ezért bőven várunk: min. 450ms ÉS legalább 8 friss frame.
           await waitForVideoFrames(8, 450);
         } catch (_) { torchTrack = null; }
       }
@@ -703,7 +697,6 @@ async function capture(){
     const frame = getSelectedFrame();
     let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
-    // Mindig megtartja a tökéletes négyzetes (1080x1080) képméretet belső maszkolással
     if(frame==='antik'){
       photoS=OUT; photoX=0; photoY=0; cw=OUT; ch=OUT;
     } else if(frame==='polaroid'){
@@ -737,8 +730,18 @@ async function capture(){
       } else {
         gl.uniform1f(U.u_de_active, 0.0);
       }
-      gl.uniform1f(U.u_dust_active, dustActive ? 1.0 : 0.0);
-      gl.uniform1f(U.u_dust_seed, dustSeed);
+      
+      // Fényszivárgás uniformok átadása nagyfelbontású rendereléskor is (WYSIWYG)
+      gl.uniform1f(U.u_fx_active, window.FX.active ? 1.0 : 0.0);
+      gl.uniform1f(U.u_fx_intensity, window.FX.intensity);
+      gl.uniform1f(U.u_fx_scale, window.FX.scale);
+      gl.uniform1f(U.u_fx_stretch, window.FX.stretch);
+      gl.uniform1f(U.u_fx_angle, window.FX.angle);
+      gl.uniform1f(U.u_fx_overexposure, window.FX.overexposure);
+      gl.uniform1f(U.u_fx_hue, window.FX.hue);
+      gl.uniform1f(U.u_fx_speed, window.FX.speed);
+      gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
+      gl.uniform1f(U.u_fx_seed, window.FX.seed);
       
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     }
@@ -746,7 +749,6 @@ async function capture(){
     const pixels=new Uint8Array(glW*glH*4);
     gl.readPixels(0,0,glW,glH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
     
-    // A megvilágított frame textúra-feltöltése és pixelolvasás után kapcsoljuk le a Torch-ot
     if (torchTrack) {
       try { await torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
     }
@@ -775,7 +777,6 @@ async function capture(){
       drawFilm(sCtx,cw,ch,Math.round(OUT*.13));
     }
 
-    // Dátum rásütése a mentett képre — antik keretnél SOHA (ott nincs dátum)
     const dateTog = document.getElementById('date-tog');
     if(dateTog && dateTog.checked && frame !== 'antik'){
       const now=new Date(),p=n=>String(n).padStart(2,'0');
@@ -830,7 +831,6 @@ async function capture(){
   });
 }
 
-// Ritkább, 5 lyukú perforáció kirajzolása mentéskor
 function drawFilm(c,W,H,sh){
   [0,H-sh].forEach(sy=>{
     c.fillStyle='#1e1c17';
@@ -912,13 +912,24 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{
   });
 });
 
-// JAVÍTVA: Eseménykezelők bekötése az új vízszintes akciósáv gombjaihoz
 const deTogBtn = document.getElementById('de-toggle-btn'); if(deTogBtn) deTogBtn.addEventListener('click', toggleDoubleExposure);
 const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTogBtn.addEventListener('click', cycleCamera);
 const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleFlash);
 const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) dustTogBtn.addEventListener('click', toggleDust);
 
-// Antik keretnél a dátum nem engedélyezett: kikapcsoljuk és letiltjuk a kapcsolót
+// JAVÍTVA: Új fényszivárgás véletlenszerűsítő (RND) eseménykezelő bekötése
+const fxRndBtn = document.getElementById('fx-rnd-btn');
+if (fxRndBtn) {
+  fxRndBtn.addEventListener('click', () => {
+    if (window.FX && window.FX.active) {
+      window.FX.randomize();
+      showToast("Analóg fényszivárgás újrakeverve!");
+    } else {
+      showToast("Először kapcsold be az FX gombot!");
+    }
+  });
+}
+
 function syncDateToggleAvailability() {
   const dateTog = document.getElementById('date-tog');
   if (!dateTog) return;
@@ -946,9 +957,6 @@ const dateTogEl = document.getElementById('date-tog');
 if (dateTogEl) {
   dateTogEl.addEventListener('change', updateLiveDate);
 }
-
-// A fotó mentése hosszú-nyomással történik (natív "Kép mentése"), nincs letöltés gomb,
-// így nincs böngésző letöltési értesítés.
 
 const photoCloseBtn = document.getElementById('photo-overlay-close');
 if (photoCloseBtn) {
