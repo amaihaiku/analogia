@@ -132,6 +132,7 @@ uniform float u_fx_hue;
 uniform vec2 u_fx_position;
 uniform float u_fx_seed;
 uniform float u_fx_bw;
+uniform float u_fx_quality;
 
 vec2 cropUV(vec2 uv){
   float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
@@ -218,6 +219,15 @@ void main(){
 let gl,prog,vtex,ltex,detex;
 const U={};
 
+// JAVÍTVA: a videótextúra méretének követése, hogy az első frame után
+// texSubImage2D-t használjunk (nem foglal újra tárolót) a drága texImage2D helyett.
+let vtexW = 0, vtexH = 0;
+
+// JAVÍTVA: a "lassan változó" uniformokat csak akkor töltjük fel, ha tényleg
+// megváltoztak (dirty flag), nem minden egyes képkockában.
+let uniformsDirty = true;
+function markUniformsDirty(){ uniformsDirty = true; }
+
 function updateCanvasDimensions() {
   if (!glCv || !glCv.parentElement) return;
   const p = glCv.parentElement;
@@ -229,13 +239,17 @@ function updateCanvasDimensions() {
     glCv.width = cachedCanvasW;
     glCv.height = cachedCanvasH;
     if (gl) gl.viewport(0, 0, cachedCanvasW, cachedCanvasH);
+    markUniformsDirty();
   }
 }
 window.addEventListener('resize', updateCanvasDimensions);
 
 function initGL(){
   if (!glCv) return false;
-  gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:true});
+  // JAVÍTVA: preserveDrawingBuffer:false → nincs frame-enkénti buffer-másolás.
+  // A capture()-ben közvetlenül a drawArrays után olvasunk readPixels-szel
+  // ugyanabban a JS-tickben, így a megőrzött buffer fölösleges.
+  gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:false});
   if(!gl)return false;
   const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,FS);
   if(!vs||!fs)return false;
@@ -253,7 +267,7 @@ function initGL(){
   gl.uniform1i(gl.getUniformLocation(prog,'u_de_tex'),2);
   
   ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active',
-   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_position', 'u_fx_seed', 'u_fx_bw'
+   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_position', 'u_fx_seed', 'u_fx_bw', 'u_fx_quality'
   ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
   updateCanvasDimensions();
@@ -284,17 +298,48 @@ function uploadLUT(ld){
 function render(){
   S.raf=requestAnimationFrame(render);
   if(!S.ready||!vid || vid.readyState<2)return;
-  
+
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
-  try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
-  
-  // JAVÍTVA: Gyorsítótárazott primitív értékek küldése, nulla Reflow vagy DOM olvasás loop közben!
-  gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
-  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
-  gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
-  gl.uniform1f(U.u_grain_sz,S.grainSize);
-  gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
-  
+
+  // JAVÍTVA: az első feltöltés texImage2D (tárolót foglal), minden további
+  // azonos méretű frame texSubImage2D-vel megy (csak felülír, nem foglal újra).
+  // Ez szünteti meg a frame-enkénti nagy GPU-allokációt — ez a fő gyorsulás.
+  const vw = vid.videoWidth || S.vidW, vh = vid.videoHeight || S.vidH;
+  try{
+    if (vw !== vtexW || vh !== vtexH) {
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);
+      vtexW = vw; vtexH = vh;
+    } else {
+      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,vid);
+    }
+  }catch(e){return;}
+
+  // JAVÍTVA: a lassan változó uniformokat csak változáskor töltjük fel.
+  if (uniformsDirty) {
+    gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
+    gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
+    gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
+    gl.uniform1f(U.u_grain_sz,S.grainSize);
+    gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
+
+    gl.uniform1f(U.u_fx_active, window.FX.active ? 1.0 : 0.0);
+    gl.uniform1f(U.u_fx_intensity, window.FX.intensity);
+    gl.uniform1f(U.u_fx_scale, window.FX.scale);
+    gl.uniform1f(U.u_fx_stretch, window.FX.stretch);
+    gl.uniform1f(U.u_fx_angle, window.FX.angle);
+    gl.uniform1f(U.u_fx_overexposure, window.FX.overexposure);
+    gl.uniform1f(U.u_fx_hue, window.FX.hue);
+    gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
+    gl.uniform1f(U.u_fx_seed, window.FX.seed);
+    gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
+    // Élő előnézet: gyors FX-minőség (2 oktávos fBm, warp nélkül).
+    gl.uniform1f(U.u_fx_quality, 0.0);
+
+    uniformsDirty = false;
+  }
+
+  // A dupla expozíció textúra-kötése állapotfüggő, ezért marad minden frame-ben,
+  // de ez csak egy bind + 1 uniform, elhanyagolható költség.
   if (S.deActive && S.deStage === 1) {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, detex);
@@ -302,18 +347,7 @@ function render(){
   } else {
     gl.uniform1f(U.u_de_active, 0.0);
   }
-  
-  gl.uniform1f(U.u_fx_active, window.FX.active ? 1.0 : 0.0);
-  gl.uniform1f(U.u_fx_intensity, window.FX.intensity);
-  gl.uniform1f(U.u_fx_scale, window.FX.scale);
-  gl.uniform1f(U.u_fx_stretch, window.FX.stretch);
-  gl.uniform1f(U.u_fx_angle, window.FX.angle);
-  gl.uniform1f(U.u_fx_overexposure, window.FX.overexposure);
-  gl.uniform1f(U.u_fx_hue, window.FX.hue);
-  gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
-  gl.uniform1f(U.u_fx_seed, window.FX.seed);
-  gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
-  
+
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
@@ -334,6 +368,7 @@ function getV(){return{exposure:S.exposure,shadows:S.shadows,highlights:S.highli
 function setV(v){
   const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
   if(S.mode==='exposure')S.exposure=v;else if(S.mode==='shadows')S.shadows=v;else if(S.mode==='highlights')S.highlights=v;else if(S.mode==='tone')S.tone=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
+  markUniformsDirty();
   return v;
 }
 function o2v(o){const m=MODES[S.mode],N=nT();return m.min+(-o/N/TPX)*(m.max-m.min);}
@@ -399,6 +434,7 @@ if (vfOverlay) {
         let nz = vfInitZoom * factor;
         nz = Math.max(1.0, Math.min(4.0, nz));
         S.zoom = Math.round(nz / 0.05) * 0.05;
+        markUniformsDirty();
         syncDial();
       }
     }
@@ -469,6 +505,7 @@ function buildFilmList(){
     it.innerHTML=`<div class="film-dot"></div><div><div class="film-name">${p.name}</div><div class="film-sub">${p.sub}</div></div>`;
     it.onclick=()=>{
       S.simKey=k;S.cpuLut=null;uploadLUT(p.lut);
+      markUniformsDirty();
       const lbl = document.getElementById('film-label');
       if (lbl) lbl.textContent=p.name;
       closeModal();
@@ -486,6 +523,7 @@ const modalBackdrop = document.getElementById('modal-backdrop'); if (modalBackdr
 function toggleDoubleExposure() {
   S.deActive = !S.deActive;
   S.deStage = 0;
+  markUniformsDirty();
   const btn = document.getElementById('de-toggle-btn');
   const sht = document.getElementById('shutter');
   if (btn) btn.classList.toggle('active', S.deActive);
@@ -579,6 +617,9 @@ function toggleDust() {
     if (window.FX.active) {
       window.FX.randomize();
     }
+    // A randomize() után jelöljük dirty-nek, hogy a friss FX-paraméterek
+    // töltődjenek fel a következő render()-ben.
+    markUniformsDirty();
   }
 }
 
@@ -721,8 +762,14 @@ async function capture(){
       gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
       gl.uniform1f(U.u_fx_seed, window.FX.seed);
       gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
-      
+      // JAVÍTVA: capture-kor TELJES FX-minőség (4 oktávos fBm + warp + mask-zaj).
+      gl.uniform1f(U.u_fx_quality, 1.0);
+
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+      // A render loop dirty-flag mechanizmusa miatt a következő élő frame-nél
+      // újra fel kell tölteni az uniformokat (a quality vissza 0.0-ra is).
+      markUniformsDirty();
     }
     
     // JAVÍTVA: Előre lefoglalt Canvas cache-ek használata capture futásakor a Garbage Collector akadozásainak megszüntetésére
@@ -732,7 +779,9 @@ async function capture(){
     memoTmpCanvas.width = photoS; memoTmpCanvas.height = photoS;
     memoSrcCanvas.width = cachedCanvasW; memoSrcCanvas.height = cachedCanvasH;
     
-    const tc = memoTmpCanvas.getContext('2d', { willReadFrequently: true });
+    // A flip után már nem olvasunk vissza getImageData-val, csak rajzolunk,
+    // ezért a willReadFrequently (ami szoftveres canvas-backendet kényszerít) elmarad.
+    const tc = memoTmpCanvas.getContext('2d');
     const srcCtx = memoSrcCanvas.getContext('2d');
     
     const pixels=new Uint8Array(cachedCanvasW*cachedCanvasH*4);
@@ -742,14 +791,18 @@ async function capture(){
       try { await torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
     }
 
-    const flipped=new Uint8Array(cachedCanvasW*cachedCanvasH*4);
-    for(let row=0;row<cachedCanvasH;row++){
-      const src=(cachedCanvasH-1-row)*cachedCanvasW*4,dst=row*cachedCanvasW*4;
-      flipped.set(pixels.subarray(src,src+cachedCanvasW*4),dst);
-    }
+    // JAVÍTVA: a readPixels alulról-fölfelé adja a sorokat. A korábbi megoldás
+    // egy második Uint8Array-be másolta át soronként (CPU-igényes, GC-terhelés).
+    // Helyette a putImageData után a tartalmat függőlegesen tükrözve rajzoljuk ki,
+    // így a teljes JS-ciklus és a második nagy tömb is elmarad.
+    srcCtx.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), cachedCanvasW, cachedCanvasH), 0, 0);
 
-    srcCtx.putImageData(new ImageData(new Uint8ClampedArray(flipped), cachedCanvasW, cachedCanvasH), 0, 0);
+    tc.save();
+    tc.translate(0, photoS);
+    tc.scale(1, -1);
     tc.drawImage(memoSrcCanvas, 0, 0, cachedCanvasW, cachedCanvasH, 0, 0, photoS, photoS);
+    tc.restore();
+
     sCtx.drawImage(memoTmpCanvas,photoX,photoY,photoS,photoS);
 
     if(frame==='antik'){
@@ -849,8 +902,15 @@ async function cycleCamera() {
 
 async function initCam(preferredDeviceId = null){
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
+  // JAVÍTVA: új stream → a videótextúra mérete változhat, ezért a cache-t
+  // nullázzuk, hogy az első frame újra texImage2D-vel foglaljon tárolót.
+  vtexW = 0; vtexH = 0;
+  markUniformsDirty();
   try{
-    const constraints = { audio:false, video:{ width:{ideal:1920}, height:{ideal:1920} } };
+    // JAVÍTVA: 1920 helyett 1440 ideál felbontás. A viewfinder canvas a kijelzőnél
+    // nem nagyobb, a mentett kép pedig 1080px-re skálázódik (OUT=1080), így a
+    // nagyobb forrás csak fölösleges frame-enkénti GPU-feltöltés volt Androidon.
+    const constraints = { audio:false, video:{ width:{ideal:1440}, height:{ideal:1440} } };
     if (preferredDeviceId) constraints.video.deviceId = { exact: preferredDeviceId };
     else constraints.video.facingMode = { ideal: 'environment' };
 
@@ -904,6 +964,7 @@ if (fxRndBtn) {
   fxRndBtn.addEventListener('click', () => {
     if (window.FX && window.FX.active) {
       window.FX.randomize();
+      markUniformsDirty();
     } else {
       showToast("Először kapcsold be az FX gombot!");
     }
@@ -1017,6 +1078,10 @@ window.addEventListener('appinstalled', () => {
     });
     glCv.addEventListener('webglcontextrestored',()=>{
       if(!initGL())return;
+      // Új GL-kontextus → új textúrák. A videótextúra-cache és az uniformok
+      // érvénytelenek, ezért nullázzuk, hogy az első frame újra teljesen feltöltsön.
+      vtexW = 0; vtexH = 0;
+      markUniformsDirty();
       const ld=PROF[S.simKey]?.lut||S.cpuLut;
       if(ld)uploadLUT(ld);
       if(S.stream)render();

@@ -1,6 +1,11 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — fx.js v1.0 (PERFORMANCE OPTIMIZED)
+   ANALOGIA — fx.js v2.0 (TELJESÍTMÉNY-ÚJRAÍRÁS)
+   Változások az 1.0-hoz képest:
+   - Kétszintű minőség: u_fx_quality (0.0 = élő/gyors, 1.0 = capture/teljes)
+     • Élőben 2 oktávos fBm + egyszerűsített warp → tört része a GPU-költségnek
+     • Capture-kor a teljes 4 oktávos fBm fut, így a mentett kép minősége nem romlik
+   - A noise-hívások számát élőben ~9-ről ~4-re csökkentettük
 ═══════════════════════════════════════ */
 
 window.FX = {
@@ -10,27 +15,27 @@ window.FX = {
   stretch: 3.0,
   angle: 0.15,
   overexposure: 0.6,
-  hue: 0.8,         
+  hue: 0.8,
   position: [0.0, 0.5],
-  speed: 1.0,       
+  speed: 1.0,
   seed: 0.0,
   lastTime: 0,
 
   randomize() {
-    if (!this.active) return; 
-    
-    this.intensity = Math.random() * (1.1 - 0.3) + 0.3;     
-    this.scale = Math.random() * (1.0 - 0.1) + 0.1;         
-    this.stretch = Math.random() * (6.0 - 0.5) + 0.5;       
-    this.angle = Math.random() * (0.8 - (-0.8)) + (-0.8);   
-    this.overexposure = Math.random() * (1.0 - 0.0) + 0.0;  
-    this.hue = Math.random() * (1.5 - 0.5) + 0.5;           
-    
+    if (!this.active) return;
+
+    this.intensity = Math.random() * (1.1 - 0.3) + 0.3;
+    this.scale = Math.random() * (1.0 - 0.1) + 0.1;
+    this.stretch = Math.random() * (6.0 - 0.5) + 0.5;
+    this.angle = Math.random() * (0.8 - (-0.8)) + (-0.8);
+    this.overexposure = Math.random() * (1.0 - 0.0) + 0.0;
+    this.hue = Math.random() * (1.5 - 0.5) + 0.5;
+
     this.position = [
       Math.random() * (1.5 - (-0.5)) + (-0.5),
       Math.random() * (1.5 - (-0.5)) + (-0.5)
     ];
-    
+
     this.seed = Math.random();
   },
 
@@ -61,7 +66,15 @@ window.FX = {
           m *= rgb;
           return 130.0 * dot(m, g);
       }
-      float fx_fbm(vec2 uv) {
+      // Élő (gyors) fBm: 2 oktáv. A korábbi 4 helyett feleannyi noise-hívás.
+      float fx_fbm_fast(vec2 uv) {
+          float value = 0.0;
+          value += 0.5  * snoise(uv);
+          value += 0.25 * snoise(uv * 2.0);
+          return value;
+      }
+      // Teljes (capture) fBm: az eredeti 4 oktávos minőség.
+      float fx_fbm_full(vec2 uv) {
           float value = 0.0;
           float amplitude = 0.5;
           float frequency = 1.0;
@@ -86,48 +99,62 @@ window.FX = {
 
     calculation: `
       if (u_fx_active > 0.5) {
-        // JAVÍTVA: Előre kiszámolt fix szorzó futásidejű float szorzások helyett
         float t = u_fx_seed * 45.0;
-        
+
         vec2 rotatedUv = rotate2D(vuv, u_fx_angle, u_fx_position);
         vec2 noiseUv = rotatedUv * u_fx_scale;
         noiseUv.y /= u_fx_stretch;
-        
-        vec2 warp = vec2(
-          snoise(noiseUv + vec2(t * 0.1, 0.0)),
-          snoise(noiseUv + vec2(0.0, t * 0.15))
-        ) * 0.25;
-        
-        float n1 = fx_fbm(noiseUv + warp + vec2(t * 0.03, t * -0.015)) * 0.5 + 0.5;
-        
+
+        // Warp: élőben elhagyjuk (0), capture-kor a teljes 2-hívásos torzítás.
+        vec2 warp = vec2(0.0);
+        if (u_fx_quality > 0.5) {
+          warp = vec2(
+            snoise(noiseUv + vec2(t * 0.1, 0.0)),
+            snoise(noiseUv + vec2(0.0, t * 0.15))
+          ) * 0.25;
+        }
+
+        // fBm: minőségtől függően gyors (2 oktáv) vagy teljes (4 oktáv).
+        float n1;
+        if (u_fx_quality > 0.5) {
+          n1 = fx_fbm_full(noiseUv + warp + vec2(t * 0.03, t * -0.015)) * 0.5 + 0.5;
+        } else {
+          n1 = fx_fbm_fast(noiseUv + vec2(t * 0.03, t * -0.015)) * 0.5 + 0.5;
+        }
+
         vec2 streakUv = vec2(rotatedUv.x * u_fx_scale * 0.15, rotatedUv.y * u_fx_scale * 2.5 / u_fx_stretch);
         float streak = snoise(streakUv + vec2(t * 0.1, t * -0.08)) * 0.5 + 0.5;
-        streak = streak * streak; // Szupergyors négyzetre emelés pow() helyett
-        
+        streak = streak * streak;
+
         float leakPattern = mix(n1, streak, 0.35);
-        float maskNoise = snoise(rotatedUv * 1.8 + vec2(t * 0.05, t * -0.02)) * 0.07;
+
+        // A mask-zaj csak capture-kor (finom részlet, élőben nem hiányzik).
+        float maskNoise = 0.0;
+        if (u_fx_quality > 0.5) {
+          maskNoise = snoise(rotatedUv * 1.8 + vec2(t * 0.05, t * -0.02)) * 0.07;
+        }
         float mask = smoothstep(0.55, 0.0, distance(rotatedUv.x, u_fx_position.x) + maskNoise);
-        
+
         float finalIntensity = leakPattern * mask * u_fx_intensity;
         finalIntensity = clamp(finalIntensity, 0.0, 1.8);
-        
+
         vec3 leakColor = vec3(0.0);
         float redFactor = smoothstep(0.02, 0.45, finalIntensity);
         float greenFactor = smoothstep(0.18, 0.85, finalIntensity) * (u_fx_hue * 0.65);
         float blueFactor = smoothstep(0.35, 0.95, finalIntensity) * (u_fx_hue * 0.45);
-        
+
         leakColor.r = redFactor;
         leakColor.g = min(greenFactor, redFactor * 0.92);
         leakColor.b = min(blueFactor, leakColor.g * 0.85);
-        
+
         float redHalo = smoothstep(0.005, 0.15, finalIntensity) * (1.0 - smoothstep(0.15, 0.35, finalIntensity));
         leakColor.r += redHalo * 0.25;
-        
+
         if (u_fx_bw > 0.5) {
           float grayLeak = dot(leakColor, vec3(0.299, 0.587, 0.114));
           leakColor = vec3(grayLeak);
         }
-        
+
         vec3 washedBase = col + (leakColor * 0.28);
         vec3 finalColor = washedBase + (leakColor * u_fx_intensity);
         col = mix(col, clamp(finalColor + (leakColor * col * u_fx_overexposure * 2.2), 0.0, 1.0), 1.0);
