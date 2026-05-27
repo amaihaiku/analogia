@@ -1,9 +1,6 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v22
-   Változások v22: Chromatic Light Leak FX integrálva,
-   különálló fx.js importálással, új FX RND dobókocka gombbal,
-   régi karcolásos effekt eltávolítva.
+   ANALOGIA — app.js v22 (PERFORMANCE OPTIMIZED)
 ═══════════════════════════════════════ */
 
 const AVAILABLE_FILTERS = ['kodachrome', 'kodak_portra', 'fuji_velvia', 'cinestill', 'teal_orange', 'bleach', 'cross', 'highcontrast_bw', 'l_monochrome', 'infrared'];
@@ -26,14 +23,19 @@ let deferredPrompt = null;
 
 let activeBlobUrl = null;
 let activeFilename = "";
-
-// Új állapottárolók a vaku funkciókhoz
 let flashEnabled = false;
+
+// Teljesítmény-optimalizálás: Méretek gyorsítótárazása a Reflow elkerülésére
+let cachedCanvasW = 0;
+let cachedCanvasH = 0;
 
 const vid = document.getElementById('vid');
 const glCv = document.getElementById('gl-canvas');
 
-// Analóg stílusú lebegő Toast értesítő rendszer
+// Globálisan újrahasznosított canvasok a capture memóriaszivárgásának megakadályozására
+let memoTmpCanvas = null;
+let memoSrcCanvas = null;
+
 function showToast(msg) {
   let t = document.getElementById('anal-toast');
   if(!t) {
@@ -51,11 +53,7 @@ function showToast(msg) {
 function checkStandaloneGuard() {
   const urlParams = new URLSearchParams(window.location.search);
   const isPwaParam = urlParams.get('mode') === 'standalone';
-  
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
-                       window.navigator.standalone || 
-                       isPwaParam;
-  
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone || isPwaParam;
   const overlay = document.getElementById('install-overlay');
   const shell = document.querySelector('.shell');
   
@@ -83,9 +81,6 @@ function bake(fn){
   return{d:lut,sz:N};
 }
 
-const PROF={};
-const XLUTS={};
-
 async function loadExternalFilters() {
   const promises = AVAILABLE_FILTERS.map(id => {
     return new Promise((resolve) => {
@@ -104,13 +99,13 @@ async function loadExternalFilters() {
         name: window.PD[id].name,
         sub: window.PD[id].sub,
         lut: bake(window.PD[id].fn),
-        isBW: window.PD[id].isBW || false // JAVÍTVA: Átveszi a szűrőből a BW tulajdonságot
+        isBW: window.PD[id].isBW || false
       };
     }
   }
 }
 
-/* ── WebGL WYSIWYG Shader Engine ── */
+/* ── WebGL Engine ── */
 const VS=`attribute vec2 a_pos;varying vec2 v_uv;
 void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.);}`;
 
@@ -123,11 +118,10 @@ varying vec2 v_uv;
 uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;uniform sampler2D u_de_tex;
 uniform float u_lut_sz;uniform vec2 u_cvs_sz;uniform vec2 u_vid_sz;
 uniform float u_zoom;uniform float u_ev;uniform float u_vig;
-uniform float u_grain;uniform float u_grain_sz;uniform float u_time;
+uniform float u_grain;uniform float u_grain_sz;
 uniform float u_shadows;uniform float u_highlights;uniform float u_tone;
 uniform float u_de_active; 
 
-// ── Fényszivárgás FX Uniformok ──
 uniform float u_fx_active;
 uniform float u_fx_intensity;
 uniform float u_fx_scale;
@@ -135,10 +129,9 @@ uniform float u_fx_stretch;
 uniform float u_fx_angle;
 uniform float u_fx_overexposure;
 uniform float u_fx_hue;
-uniform float u_fx_speed;
 uniform vec2 u_fx_position;
 uniform float u_fx_seed;
-uniform float u_fx_bw; // JAVÍTVA: új uniform a szivárgás monokrómmá alakításához
+uniform float u_fx_bw;
 
 vec2 cropUV(vec2 uv){
   float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
@@ -161,7 +154,6 @@ vec3 applyLUT(vec3 c){
 }
 float h2(vec2 p){p=fract(p*vec2(234.34,435.34));p+=dot(p,p+34.23);return fract(p.x*p.y);}
 float sn(vec2 u){vec2 i=floor(u),f=fract(u),s=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1,0)),s.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),s.x),s.y);}
-float fbm(vec2 u){return sn(u)*.5+sn(u*2.)*.25+sn(u*4.)*.125;}
 float gc(float l){float t=1.-abs(l-.5)*2.;return t*t*(3.-2.*t);}
 float gn(vec2 p, float seed){
   vec2 q = p + seed * vec2(127.1, 311.7);
@@ -170,7 +162,6 @@ float gn(vec2 p, float seed){
   return (a + b) - 1.0;
 }
 
-// ── Fényszivárgás zajfüggvények betöltése az fx.js-ből ──
 ${window.FX && window.FX.shader ? window.FX.shader.helpers : ''}
 
 void main(){
@@ -205,7 +196,6 @@ void main(){
   col.b-=u_tone*0.15;
   col=clamp(col,0.0,1.0);
   
-  // ── Fényszivárgás meleg színkalkuláció betöltése az fx.js-ből ──
   ${window.FX && window.FX.shader ? window.FX.shader.calculation : ''}
   
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
@@ -214,7 +204,7 @@ void main(){
     float lum=dot(col,vec3(.2126,.7152,.0722));
     float gsize=mix(1.9,0.85,u_grain)*u_grain_sz;
     float gstr=u_grain*0.16;
-    vec2 px=vec2(v_uv.x*u_cvs_sz.x, v_uv.y*u_cvs_sz.y)/gsize;  vec2 jit=vec2(u_time*5.0,u_time*3.0);
+    vec2 px=vec2(v_uv.x*u_cvs_sz.x, v_uv.y*u_cvs_sz.y)/gsize;  vec2 jit=vec2(u_fx_seed*50.0, u_fx_seed*30.0);
     float nr=gn(px+jit,11.0);
     float ng=gn(px+jit,37.0);
     float nb=gn(px+jit,71.0)*1.4;
@@ -228,6 +218,21 @@ void main(){
 let gl,prog,vtex,ltex,detex;
 const U={};
 
+function updateCanvasDimensions() {
+  if (!glCv || !glCv.parentElement) return;
+  const p = glCv.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+  cachedCanvasW = Math.round(p.clientWidth * dpr);
+  cachedCanvasH = Math.round(p.clientHeight * dpr);
+  
+  if(glCv.width !== cachedCanvasW || glCv.height !== cachedCanvasH){
+    glCv.width = cachedCanvasW;
+    glCv.height = cachedCanvasH;
+    if (gl) gl.viewport(0, 0, cachedCanvasW, cachedCanvasH);
+  }
+}
+window.addEventListener('resize', updateCanvasDimensions);
+
 function initGL(){
   if (!glCv) return false;
   gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:true});
@@ -236,7 +241,7 @@ function initGL(){
   if(!vs||!fs)return false;
   prog=gl.createProgram();
   gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
-  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(prog));return false;}
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){return false;}
   gl.useProgram(prog);
   const buf=gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER,buf);
@@ -247,13 +252,14 @@ function initGL(){
   gl.uniform1i(gl.getUniformLocation(prog,'u_lut_tex'),1);
   gl.uniform1i(gl.getUniformLocation(prog,'u_de_tex'),2);
   
-  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active',
-   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_speed', 'u_fx_position', 'u_fx_seed', 'u_fx_bw'
+  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active',
+   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_position', 'u_fx_seed', 'u_fx_bw'
   ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
+  updateCanvasDimensions();
   return true;
 }
-function mkS(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
+function mkS(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){return null;}return s;}
 function mkT(){
   const t=gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D,t);
@@ -277,30 +283,26 @@ function uploadLUT(ld){
 
 function render(){
   S.raf=requestAnimationFrame(render);
-  if(!S.ready||!vid||vid.readyState<2)return;
-  const p=glCv.parentElement;
-  const dpr = window.devicePixelRatio || 1;
-  const bw = Math.round(p.clientWidth * dpr);
-  const bh = Math.round(p.clientHeight * dpr);
-  if(glCv.width!==bw||glCv.height!==bh){
-    glCv.width=bw;
-    glCv.height=bh;
-    gl.viewport(0,0,bw,bh);
-  }
+  if(!S.ready||!vid || vid.readyState<2)return;
+  
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
   
-  gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
+  // JAVÍTVA: Gyorsítótárazott primitív értékek küldése, nulla Reflow vagy DOM olvasás loop közben!
+  gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
   gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
   gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
-  gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
+  gl.uniform1f(U.u_grain_sz,S.grainSize);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
   
-  gl.activeTexture(gl.TEXTURE2);
-  gl.bindTexture(gl.TEXTURE_2D, (S.deActive && S.deStage === 1) ? detex : vtex);
-  gl.uniform1f(U.u_de_active, (S.deActive && S.deStage === 1) ? 1.0 : 0.0);
+  if (S.deActive && S.deStage === 1) {
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, detex);
+    gl.uniform1f(U.u_de_active, 1.0);
+  } else {
+    gl.uniform1f(U.u_de_active, 0.0);
+  }
   
-  // ── Új fényszivárgás modul uniform átadása ──
   gl.uniform1f(U.u_fx_active, window.FX.active ? 1.0 : 0.0);
   gl.uniform1f(U.u_fx_intensity, window.FX.intensity);
   gl.uniform1f(U.u_fx_scale, window.FX.scale);
@@ -308,10 +310,7 @@ function render(){
   gl.uniform1f(U.u_fx_angle, window.FX.angle);
   gl.uniform1f(U.u_fx_overexposure, window.FX.overexposure);
   gl.uniform1f(U.u_fx_hue, window.FX.hue);
-  gl.uniform1f(U.u_fx_speed, window.FX.speed);
   gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
-  
-  // JAVÍTVA: A folyamatos, képkockánkénti véletlenszerűsítő időzítő törölve a teljesítmény érdekében.
   gl.uniform1f(U.u_fx_seed, window.FX.seed);
   gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
   
@@ -696,13 +695,12 @@ async function capture(){
     sCtx.fillRect(0,0,cw,ch);
 
     if(S.ready&&vid&&vid.readyState>=2){
-      const bw=glCv.width,bh=glCv.height;
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
       try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
-      gl.uniform2f(U.u_cvs_sz,bw,bh);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
+      gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
       gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
       gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
-      gl.uniform1f(U.u_grain_sz,S.grainSize);gl.uniform1f(U.u_time,performance.now()/1000);
+      gl.uniform1f(U.u_grain_sz,S.grainSize);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
       
       if(S.deActive && S.deStage === 1) {
@@ -720,35 +718,39 @@ async function capture(){
       gl.uniform1f(U.u_fx_angle, window.FX.angle);
       gl.uniform1f(U.u_fx_overexposure, window.FX.overexposure);
       gl.uniform1f(U.u_fx_hue, window.FX.hue);
-      gl.uniform1f(U.u_fx_speed, window.FX.speed);
       gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
       gl.uniform1f(U.u_fx_seed, window.FX.seed);
       gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
       
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     }
-    const glW=glCv.width,glH=glCv.height;
-    const pixels=new Uint8Array(glW*glH*4);
-    gl.readPixels(0,0,glW,glH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+    
+    // JAVÍTVA: Előre lefoglalt Canvas cache-ek használata capture futásakor a Garbage Collector akadozásainak megszüntetésére
+    if (!memoTmpCanvas) { memoTmpCanvas = document.createElement('canvas'); }
+    if (!memoSrcCanvas) { memoSrcCanvas = document.createElement('canvas'); }
+    
+    memoTmpCanvas.width = photoS; memoTmpCanvas.height = photoS;
+    memoSrcCanvas.width = cachedCanvasW; memoSrcCanvas.height = cachedCanvasH;
+    
+    const tc = memoTmpCanvas.getContext('2d', { willReadFrequently: true });
+    const srcCtx = memoSrcCanvas.getContext('2d');
+    
+    const pixels=new Uint8Array(cachedCanvasW*cachedCanvasH*4);
+    gl.readPixels(0,0,cachedCanvasW,cachedCanvasH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
     
     if (torchTrack) {
       try { await torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
     }
 
-    const flipped=new Uint8Array(glW*glH*4);
-    for(let row=0;row<glH;row++){
-      const src=(glH-1-row)*glW*4,dst=row*glW*4;
-      flipped.set(pixels.subarray(src,src+glW*4),dst);
+    const flipped=new Uint8Array(cachedCanvasW*cachedCanvasH*4);
+    for(let row=0;row<cachedCanvasH;row++){
+      const src=(cachedCanvasH-1-row)*cachedCanvasW*4,dst=row*cachedCanvasW*4;
+      flipped.set(pixels.subarray(src,src+cachedCanvasW*4),dst);
     }
 
-    const tmp = document.createElement('canvas'); tmp.width = photoS; tmp.height = photoS;
-    const tc = tmp.getContext('2d', { willReadFrequently: true });
-    const srcCanvas = document.createElement('canvas'); srcCanvas.width = glW; srcCanvas.height = glH;
-    const srcCtx = srcCanvas.getContext('2d');
-    srcCtx.putImageData(new ImageData(new Uint8ClampedArray(flipped), glW, glH), 0, 0);
-    tc.drawImage(srcCanvas, 0, 0, glW, glH, 0, 0, photoS, photoS);
-
-    sCtx.drawImage(tmp,photoX,photoY,photoS,photoS);
+    srcCtx.putImageData(new ImageData(new Uint8ClampedArray(flipped), cachedCanvasW, cachedCanvasH), 0, 0);
+    tc.drawImage(memoSrcCanvas, 0, 0, cachedCanvasW, cachedCanvasH, 0, 0, photoS, photoS);
+    sCtx.drawImage(memoTmpCanvas,photoX,photoY,photoS,photoS);
 
     if(frame==='antik'){
       try{
@@ -790,7 +792,6 @@ async function capture(){
       if(S.lastPhotoUrl) URL.revokeObjectURL(S.lastPhotoUrl);
       const url=URL.createObjectURL(blob);
       S.lastPhotoUrl = url;
-      
       activeBlobUrl = url;
       activeFilename = fname;
       
@@ -817,12 +818,10 @@ function drawFilm(c,W,H,sh){
   [0,H-sh].forEach(sy=>{
     c.fillStyle='#1e1c17';
     c.fillRect(0,sy,W,sh);
-    
     const hh=Math.round(sh * 0.55), hy=sy+(sh-hh)/2;
     const steps = 5;
     const colWidth = W / steps;
     const hw = Math.round(colWidth * 0.35); 
-    
     c.fillStyle='#0a0904';
     for(let i=0; i<steps; i++) {
       const x = Math.round((colWidth * i) + (colWidth - hw) / 2);
@@ -875,6 +874,7 @@ async function initCam(preferredDeviceId = null){
         const resEl = document.getElementById('hud-res'); if(resEl) resEl.textContent=S.vidW+'×'+S.vidH;
         const npEl = document.getElementById('noperm'); if(npEl) npEl.style.display='none';
         tk.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
+        updateCanvasDimensions();
         render();
       },{once:true});
     }
@@ -899,7 +899,6 @@ const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTo
 const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleFlash);
 const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) dustTogBtn.addEventListener('click', toggleDust);
 
-// JAVÍTVA: Új fényszivárgás véletlenszerűsítő (RND) eseménykezelő toast felugró értesítés nélkül
 const fxRndBtn = document.getElementById('fx-rnd-btn');
 if (fxRndBtn) {
   fxRndBtn.addEventListener('click', () => {
@@ -953,24 +952,17 @@ if (natInstBtn) {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      
       if (outcome === 'accepted') {
         deferredPrompt = null;
         const desc = document.querySelector('.install-desc');
         const actions = document.querySelector('.install-actions');
-        
         if (desc) {
           desc.innerHTML = "<span style='color: #c8a84b; font-weight: bold; display: block; margin-bottom: 8px;'>✓ SIKERES TELEPÍTÉS!</span>" +
                            "Az Analogia ikonja bekerült a menüdbe / kezdőképernyődre.<br>" +
                            "Ezt a böngészőlapot most már bezárhatod.";
         }
-        if (actions) {
-          actions.style.display = 'none';
-        }
-        
-        setTimeout(() => {
-          window.close();
-        }, 1500);
+        if (actions) actions.style.display = 'none';
+        setTimeout(() => { window.close(); }, 1500);
       }
     } else {
       const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);

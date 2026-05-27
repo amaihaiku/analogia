@@ -1,8 +1,6 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — fx.js v1.0
-   Fizikai alapú Meleg Fényszivárgás (Light Leak) FX Modul
-   Minden paraméter és WebGL shader részlet külön, könnyen módosítható módon.
+   ANALOGIA — fx.js v1.0 (PERFORMANCE OPTIMIZED)
 ═══════════════════════════════════════ */
 
 window.FX = {
@@ -12,24 +10,22 @@ window.FX = {
   stretch: 3.0,
   angle: 0.15,
   overexposure: 0.6,
-  hue: 0.8,         // 0.5 - 1.5 meleg spektrum (vöröstől az aranysárgáig)
+  hue: 0.8,         
   position: [0.0, 0.5],
-  speed: 1.0,       // fixen 1.0
+  speed: 1.0,       
   seed: 0.0,
   lastTime: 0,
 
-  // Véletlenszerűsítő funkció az egyeztetett analóg határértékek között
   randomize() {
-    if (!this.active) return; // Csak akkor engedjük, ha az FX be van kapcsolva
+    if (!this.active) return; 
     
-    this.intensity = Math.random() * (1.1 - 0.3) + 0.3;     // Intenzitás: 0.3 - 1.1
-    this.scale = Math.random() * (1.0 - 0.1) + 0.1;         // Zaj skála: 0.1 - 1.0
-    this.stretch = Math.random() * (6.0 - 0.5) + 0.5;       // Anamorf nyújtás: 0.5 - 6.0
-    this.angle = Math.random() * (0.8 - (-0.8)) + (-0.8);   // Fény dőlésszöge: -0.8 - 0.8 radián (kb -45-től +45 fokig)
-    this.overexposure = Math.random() * (1.0 - 0.0) + 0.0;  // Beégési reakció: 0.0 - 1.0
-    this.hue = Math.random() * (1.5 - 0.5) + 0.5;           // Színtónus: 0.5 - 1.5 (kizárólag meleg sáv)
+    this.intensity = Math.random() * (1.1 - 0.3) + 0.3;     
+    this.scale = Math.random() * (1.0 - 0.1) + 0.1;         
+    this.stretch = Math.random() * (6.0 - 0.5) + 0.5;       
+    this.angle = Math.random() * (0.8 - (-0.8)) + (-0.8);   
+    this.overexposure = Math.random() * (1.0 - 0.0) + 0.0;  
+    this.hue = Math.random() * (1.5 - 0.5) + 0.5;           
     
-    // Fényforrás origója X és Y esetén is: -0.5 - 1.5
     this.position = [
       Math.random() * (1.5 - (-0.5)) + (-0.5),
       Math.random() * (1.5 - (-0.5)) + (-0.5)
@@ -38,9 +34,7 @@ window.FX = {
     this.seed = Math.random();
   },
 
-  // GLSL Shader kódstruktúrák, amiket az app.js dinamikusan beolvas
   shader: {
-    // 2D Simplex zaj generátor és elforgatási mátrixok
     helpers: `
       vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
       float snoise(vec2 v){
@@ -90,20 +84,15 @@ window.FX = {
       }
     `,
 
-    // Fényszivárgás meleg színátmenet- és haláció-kalkuláció a pixelhez
     calculation: `
       if (u_fx_active > 0.5) {
-        // JAVÍTVA: u_time helyett a fix seed vezérli a mintát, így nem mozog folyamatosan és nem lassít!
+        // JAVÍTVA: Előre kiszámolt fix szorzó futásidejű float szorzások helyett
         float t = u_fx_seed * 45.0;
         
-        // Koordináta forgatás a fényorigó körül
         vec2 rotatedUv = rotate2D(vuv, u_fx_angle, u_fx_position);
-        
-        // Anamorfikusan nyújtott elforgatott zaj koordináták
         vec2 noiseUv = rotatedUv * u_fx_scale;
         noiseUv.y /= u_fx_stretch;
         
-        // Domain Warping torzító hatás
         vec2 warp = vec2(
           snoise(noiseUv + vec2(t * 0.1, 0.0)),
           snoise(noiseUv + vec2(0.0, t * 0.15))
@@ -111,23 +100,17 @@ window.FX = {
         
         float n1 = fx_fbm(noiseUv + warp + vec2(t * 0.03, t * -0.015)) * 0.5 + 0.5;
         
-        // Finom anamorf csíkszerkezet (szuperlágyítva pow 2.2)
         vec2 streakUv = vec2(rotatedUv.x * u_fx_scale * 0.15, rotatedUv.y * u_fx_scale * 2.5 / u_fx_stretch);
         float streak = snoise(streakUv + vec2(t * 0.1, t * -0.08)) * 0.5 + 0.5;
-        streak = pow(streak, 2.2);
+        streak = streak * streak; // Szupergyors négyzetre emelés pow() helyett
         
         float leakPattern = mix(n1, streak, 0.35);
-        
-        // Organikus elmosódás a maszk éleinek lágyításához
         float maskNoise = snoise(rotatedUv * 1.8 + vec2(t * 0.05, t * -0.02)) * 0.07;
-        
-        // Keretmenti (Edge) fényszivárgás maszk: lágy, elmosódott 55%-os sávval
         float mask = smoothstep(0.55, 0.0, distance(rotatedUv.x, u_fx_position.x) + maskNoise);
         
         float finalIntensity = leakPattern * mask * u_fx_intensity;
         finalIntensity = clamp(finalIntensity, 0.0, 1.8);
         
-        // PROFI FILMES MELEG SZÍNSPEKTRUM
         vec3 leakColor = vec3(0.0);
         float redFactor = smoothstep(0.02, 0.45, finalIntensity);
         float greenFactor = smoothstep(0.18, 0.85, finalIntensity) * (u_fx_hue * 0.65);
@@ -137,17 +120,14 @@ window.FX = {
         leakColor.g = min(greenFactor, redFactor * 0.92);
         leakColor.b = min(blueFactor, leakColor.g * 0.85);
         
-        // Kémiai haláció derengés a fényszivárgás szélén (mélyvörös derengés)
         float redHalo = smoothstep(0.005, 0.15, finalIntensity) * (1.0 - smoothstep(0.15, 0.35, finalIntensity));
         leakColor.r += redHalo * 0.25;
         
-        // JAVÍTVA: Ha a fekete-fehér mód aktív, a fényszivárgást színtelenítjük monokróm árnyalattá
         if (u_fx_bw > 0.5) {
           float grayLeak = dot(leakColor, vec3(0.299, 0.587, 0.114));
           leakColor = vec3(grayLeak);
         }
         
-        // Keverés a kép eredeti színeivel (Beégés / Overexposure)
         vec3 washedBase = col + (leakColor * 0.28);
         vec3 finalColor = washedBase + (leakColor * u_fx_intensity);
         col = mix(col, clamp(finalColor + (leakColor * col * u_fx_overexposure * 2.2), 0.0, 1.0), 1.0);
