@@ -93,7 +93,8 @@ window.FX = {
     // Fényszivárgás meleg színátmenet- és haláció-kalkuláció a pixelhez
     calculation: `
       if (u_fx_active > 0.5) {
-        float t = u_time * u_fx_speed;
+        // JAVÍTVA: u_time helyett a fix seed vezérli a mintát, így nem mozog folyamatosan és nem lassít!
+        float t = u_fx_seed * 45.0;
         
         // Koordináta forgatás a fényorigó körül
         vec2 rotatedUv = rotate2D(vuv, u_fx_angle, u_fx_position);
@@ -126,7 +127,7 @@ window.FX = {
         float finalIntensity = leakPattern * mask * u_fx_intensity;
         finalIntensity = clamp(finalIntensity, 0.0, 1.8);
         
-        // PROFI FILMES MELEG SZÍNSPEKTRUM (Nincs zöld/kék nemkívánatos elcsúszás)
+        // PROFI FILMES MELEG SZÍNSPEKTRUM
         vec3 leakColor = vec3(0.0);
         float redFactor = smoothstep(0.02, 0.45, finalIntensity);
         float greenFactor = smoothstep(0.18, 0.85, finalIntensity) * (u_fx_hue * 0.65);
@@ -139,6 +140,12 @@ window.FX = {
         // Kémiai haláció derengés a fényszivárgás szélén (mélyvörös derengés)
         float redHalo = smoothstep(0.005, 0.15, finalIntensity) * (1.0 - smoothstep(0.15, 0.35, finalIntensity));
         leakColor.r += redHalo * 0.25;
+        
+        // JAVÍTVA: Ha a fekete-fehér mód aktív, a fényszivárgást színtelenítjük monokróm árnyalattá
+        if (u_fx_bw > 0.5) {
+          float grayLeak = dot(leakColor, vec3(0.299, 0.587, 0.114));
+          leakColor = vec3(grayLeak);
+        }
         
         // Keverés a kép eredeti színeivel (Beégés / Overexposure)
         vec3 washedBase = col + (leakColor * 0.28);
