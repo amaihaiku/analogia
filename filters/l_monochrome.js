@@ -2,6 +2,7 @@ window.PD = window.PD || {};
 window.PD.l_monochrome = {
   name: 'L-MONOCHROME',
   sub: 'Leica rendering · Rich midtones · Airy',
+  isBW: true, // HOZZÁADVA a monokróm szivárgás vezérléséhez
   fn: function(r, g, b) {
     function scv(x,p,c){const t=x-p;return t/Math.sqrt(1+(c*t)*(c*t))+p;}
     let l=0.30*r+0.59*g+0.11*b;

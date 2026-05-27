@@ -2,6 +2,7 @@ window.PD = window.PD || {};
 window.PD.infrared = {
   name: 'INFRARED',
   sub: 'Green becomes white · Sky darkens · Dramatic',
+  isBW: true, // HOZZÁADVA a monokróm szivárgás vezérléséhez
   fn: function(r, g, b) {
     function scv(x,p,c){const t=x-p;return t/Math.sqrt(1+(c*t)*(c*t))+p;}
     let l=0.05*r+0.88*g+0.07*b;

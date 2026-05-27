@@ -2,6 +2,7 @@ window.PD = window.PD || {};
 window.PD.highcontrast_bw = {
   name: 'HIGH CONTRAST',
   sub: 'Crushed blacks · Clean whites · Graphic',
+  isBW: true, // HOZZÁADVA a monokróm szivárgás vezérléséhez
   fn: function(r, g, b) {
     function scv(x,p,c){const t=x-p;return t/Math.sqrt(1+(c*t)*(c*t))+p;}
     let l=0.25*r+0.65*g+0.10*b;
