@@ -215,7 +215,15 @@ void main(){
   col.b-=u_tone*0.15;
   col=clamp(col,0.0,1.0);
   
+  // JAVÍTVA: Az FX (fényszivárgás) a kompozícióhoz/kerethez rögzül, NEM a zoomolt
+  // képtartalomhoz. Ezért az FX-számításhoz a zoomtól független, teljes 0..1
+  // képernyőkoordinátát (v_uv) használjuk a 'vuv' helyett, majd visszaállítjuk.
+  // Így a véletlenszerűen dobott fényszivárgás megmarad akkor is, ha a felhasználó
+  // ránagyít az élőképre.
+  vec2 vuv_zoomed = vuv;
+  vuv = v_uv;
   ${window.FX && window.FX.shader ? window.FX.shader.calculation : ''}
+  vuv = vuv_zoomed;
   
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   
@@ -333,6 +341,12 @@ function uploadLUT(ld){
 }
 
 function render(){
+  // JAVÍTVA: Mielőtt új frame-et ütemezünk, leállítjuk az esetleges korábbi
+  // render-láncot. Az initCam (loadedmetadata) és a kameraváltás többször is
+  // hívhatta a render()-t, így párhuzamos requestAnimationFrame láncok indultak,
+  // amelyek frame-enként felváltva töltötték a uniformokat — ez okozta a
+  // függőlegesen kettéosztott, villogó képet. Egyetlen aktív loopot garantálunk.
+  if (S.raf) cancelAnimationFrame(S.raf);
   S.raf=requestAnimationFrame(render);
   if(!S.ready||!vid || vid.readyState<2)return;
 
