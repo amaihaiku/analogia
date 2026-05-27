@@ -67,7 +67,7 @@ window.FX = {
           m *= rgb;
           return 130.0 * dot(m, g);
       }
-      float fbm(vec2 uv) {
+      float fx_fbm(vec2 uv) {
           float value = 0.0;
           float amplitude = 0.5;
           float frequency = 1.0;
@@ -108,7 +108,7 @@ window.FX = {
           snoise(noiseUv + vec2(0.0, t * 0.15))
         ) * 0.25;
         
-        float n1 = fbm(noiseUv + warp + vec2(t * 0.03, t * -0.015)) * 0.5 + 0.5;
+        float n1 = fx_fbm(noiseUv + warp + vec2(t * 0.03, t * -0.015)) * 0.5 + 0.5;
         
         // Finom anamorf csíkszerkezet (szuperlágyítva pow 2.2)
         vec2 streakUv = vec2(rotatedUv.x * u_fx_scale * 0.15, rotatedUv.y * u_fx_scale * 2.5 / u_fx_stretch);

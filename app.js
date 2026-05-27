@@ -412,19 +412,6 @@ if (vfOverlay) {
     try { vfOverlay.releasePointerCapture(e.pointerId); } catch (_) {}
     if (vfPointers.has(e.pointerId) && vfPointers.size === 1 && !isPinching) {
       triggerVfFocus(e);
-      
-      /* ═══════════════════════════════════════
-         KIKOMMENTELT: FÉNYFORRÁS HELYÉNEK KÉPERNYŐRE BÖKÉSSEL VALÓ ÁTHELYEZÉSE
-         Ha a jövőben szeretnéd, hogy a felhasználók a képernyőre bökve a fényszivárgást is át tudják helyezni,
-         egyszerűen töröld ki a komment jeleket az alábbi blokkból:
-         
-         if (window.FX && window.FX.active) {
-           const r = vfOverlay.getBoundingClientRect();
-           const rx = (e.clientX - r.left) / r.width;
-           const ry = 1.0 - (e.clientY - r.top) / r.height; // Y tengely tükrözése WebGL-hez
-           window.FX.position = [rx, ry];
-         }
-         ═══════════════════════════════════════ */
     }
     vfPointers.delete(e.pointerId);
     if (vfPointers.size === 0) {
@@ -917,13 +904,12 @@ const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTo
 const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleFlash);
 const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) dustTogBtn.addEventListener('click', toggleDust);
 
-// JAVÍTVA: Új fényszivárgás véletlenszerűsítő (RND) eseménykezelő bekötése
+// JAVÍTVA: Új fényszivárgás véletlenszerűsítő (RND) eseménykezelő bekötése toast értesítés nélkül
 const fxRndBtn = document.getElementById('fx-rnd-btn');
 if (fxRndBtn) {
   fxRndBtn.addEventListener('click', () => {
     if (window.FX && window.FX.active) {
       window.FX.randomize();
-      showToast("Analóg fényszivárgás újrakeverve!");
     } else {
       showToast("Először kapcsold be az FX gombot!");
     }
@@ -1026,7 +1012,7 @@ window.addEventListener('appinstalled', () => {
   const desc = document.querySelector('.install-desc');
   const actions = document.querySelector('.install-actions');
   if (desc) {
-    desc.innerHTML = "<span style='color: #c8a84b; font-weight: bold; display: block; margin-bottom: 8px;'>✓ SIKERES TELEPÍTÉS!</span>Ezt a lapot most már bezárhatod, és indíthatod az appot a kezdőképernyőről.";
+    desc.innerHTML = "<span style='color: #c8a84b; font-weight: bold; display: block; margin-bottom: 8px;'>✓ SIKERES TELEPÍTÉS!</span>Ezt a lapot most már bezárhatod, and indíthatod az appot a kezdőképernyőről.";
   }
   if (actions) actions.style.display = 'none';
   setTimeout(() => { window.close(); }, 1500);
