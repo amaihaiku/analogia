@@ -103,7 +103,8 @@ async function loadExternalFilters() {
       PROF[id] = {
         name: window.PD[id].name,
         sub: window.PD[id].sub,
-        lut: bake(window.PD[id].fn)
+        lut: bake(window.PD[id].fn),
+        isBW: window.PD[id].isBW || false // JAVÍTVA: Átveszi a szűrőből a BW tulajdonságot
       };
     }
   }
@@ -113,7 +114,6 @@ async function loadExternalFilters() {
 const VS=`attribute vec2 a_pos;varying vec2 v_uv;
 void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.);}`;
 
-// JAVÍTVA: A régi karcolásos effekt törölve, az új fizikai fényszivárgás modul uniformjai és logikája beépítve!
 const FS=`#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
 #else
@@ -138,6 +138,7 @@ uniform float u_fx_hue;
 uniform float u_fx_speed;
 uniform vec2 u_fx_position;
 uniform float u_fx_seed;
+uniform float u_fx_bw; // JAVÍTVA: új uniform a szivárgás monokrómmá alakításához
 
 vec2 cropUV(vec2 uv){
   float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
@@ -247,7 +248,7 @@ function initGL(){
   gl.uniform1i(gl.getUniformLocation(prog,'u_de_tex'),2);
   
   ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_time','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active',
-   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_speed', 'u_fx_position', 'u_fx_seed'
+   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_speed', 'u_fx_position', 'u_fx_seed', 'u_fx_bw'
   ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
   return true;
@@ -310,13 +311,9 @@ function render(){
   gl.uniform1f(U.u_fx_speed, window.FX.speed);
   gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
   
-  // Organikus remegés / időbeli mintaváltás (7.4fps mozi-sebességre tervezve)
-  const nowTime = performance.now();
-  if (window.FX.active && (nowTime - window.FX.lastTime > 135)) {
-    window.FX.seed = Math.random();
-    window.FX.lastTime = nowTime;
-  }
+  // JAVÍTVA: A folyamatos, képkockánkénti véletlenszerűsítő időzítő törölve a teljesítmény érdekében.
   gl.uniform1f(U.u_fx_seed, window.FX.seed);
+  gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
   
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
@@ -574,7 +571,6 @@ function toggleFlash() {
   if (btn) btn.classList.toggle('active', flashEnabled);
 }
 
-// JAVÍTVA: Por és Karc (FX) állapotkezelő átalakítva a fényszivárgás modul vezérlésére
 function toggleDust() {
   if (window.FX) {
     window.FX.active = !window.FX.active;
@@ -665,7 +661,6 @@ async function capture(){
   triggerMechanicalShutter(async () => {
     S.saving=true;
 
-    // friss fényszivárgás minta a mentéshez
     if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
 
     let torchTrack = null;
@@ -718,7 +713,6 @@ async function capture(){
         gl.uniform1f(U.u_de_active, 0.0);
       }
       
-      // Fényszivárgás uniformok átadása nagyfelbontású rendereléskor is (WYSIWYG)
       gl.uniform1f(U.u_fx_active, window.FX.active ? 1.0 : 0.0);
       gl.uniform1f(U.u_fx_intensity, window.FX.intensity);
       gl.uniform1f(U.u_fx_scale, window.FX.scale);
@@ -729,6 +723,7 @@ async function capture(){
       gl.uniform1f(U.u_fx_speed, window.FX.speed);
       gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
       gl.uniform1f(U.u_fx_seed, window.FX.seed);
+      gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
       
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     }
@@ -904,7 +899,7 @@ const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTo
 const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleFlash);
 const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) dustTogBtn.addEventListener('click', toggleDust);
 
-// JAVÍTVA: Új fényszivárgás véletlenszerűsítő (RND) eseménykezelő bekötése toast értesítés nélkül
+// JAVÍTVA: Új fényszivárgás véletlenszerűsítő (RND) eseménykezelő toast felugró értesítés nélkül
 const fxRndBtn = document.getElementById('fx-rnd-btn');
 if (fxRndBtn) {
   fxRndBtn.addEventListener('click', () => {
