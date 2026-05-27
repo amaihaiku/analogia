@@ -219,10 +219,6 @@ void main(){
 let gl,prog,vtex,ltex,detex;
 const U={};
 
-// JAVÍTVA: a videótextúra méretének követése, hogy az első frame után
-// texSubImage2D-t használjunk (nem foglal újra tárolót) a drága texImage2D helyett.
-let vtexW = 0, vtexH = 0;
-
 // JAVÍTVA: a "lassan változó" uniformokat csak akkor töltjük fel, ha tényleg
 // megváltoztak (dirty flag), nem minden egyes képkockában.
 let uniformsDirty = true;
@@ -301,18 +297,12 @@ function render(){
 
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
 
-  // JAVÍTVA: az első feltöltés texImage2D (tárolót foglal), minden további
-  // azonos méretű frame texSubImage2D-vel megy (csak felülír, nem foglal újra).
-  // Ez szünteti meg a frame-enkénti nagy GPU-allokációt — ez a fő gyorsulás.
-  const vw = vid.videoWidth || S.vidW, vh = vid.videoHeight || S.vidH;
-  try{
-    if (vw !== vtexW || vh !== vtexH) {
-      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);
-      vtexW = vw; vtexH = vh;
-    } else {
-      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,vid);
-    }
-  }catch(e){return;}
+  // FONTOS: videóelemnél a texImage2D a megbízható út. A texSubImage2D videóforrással
+  // Android Chrome-on fekete textúrát ad (a videó méret-tulajdonsága nem érhető el a
+  // sub-feltöltéshez), ezért szándékosan NEM használjuk. A tényleges gyorsulást a
+  // preserveDrawingBuffer:false, az alacsonyabb felbontás, a dirty-flag uniformok és
+  // az FX-egyszerűsítés adja — ehhez a feltöltéshez nincs rá szükség.
+  try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
 
   // JAVÍTVA: a lassan változó uniformokat csak változáskor töltjük fel.
   if (uniformsDirty) {
@@ -902,9 +892,6 @@ async function cycleCamera() {
 
 async function initCam(preferredDeviceId = null){
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
-  // JAVÍTVA: új stream → a videótextúra mérete változhat, ezért a cache-t
-  // nullázzuk, hogy az első frame újra texImage2D-vel foglaljon tárolót.
-  vtexW = 0; vtexH = 0;
   markUniformsDirty();
   try{
     // JAVÍTVA: 1920 helyett 1440 ideál felbontás. A viewfinder canvas a kijelzőnél
@@ -962,11 +949,15 @@ const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) du
 const fxRndBtn = document.getElementById('fx-rnd-btn');
 if (fxRndBtn) {
   fxRndBtn.addEventListener('click', () => {
-    if (window.FX && window.FX.active) {
+    if (!window.FX) return;
+    if (window.FX.active) {
+      // Már aktív: csak új véletlen FX-paramétereket sorsolunk.
       window.FX.randomize();
       markUniformsDirty();
     } else {
-      showToast("Először kapcsold be az FX gombot!");
+      // Nincs aktív: a toggleDust bekapcsolja az FX-et, frissíti a gomb állapotát,
+      // randomizál és dirty-nek jelöli — pont amit szeretnénk, üzenet nélkül.
+      toggleDust();
     }
   });
 }
@@ -1078,9 +1069,7 @@ window.addEventListener('appinstalled', () => {
     });
     glCv.addEventListener('webglcontextrestored',()=>{
       if(!initGL())return;
-      // Új GL-kontextus → új textúrák. A videótextúra-cache és az uniformok
-      // érvénytelenek, ezért nullázzuk, hogy az első frame újra teljesen feltöltsön.
-      vtexW = 0; vtexH = 0;
+      // Új GL-kontextus → új textúrák és uniformok, ezért dirty-nek jelöljük.
       markUniformsDirty();
       const ld=PROF[S.simKey]?.lut||S.cpuLut;
       if(ld)uploadLUT(ld);
