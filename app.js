@@ -1,9 +1,10 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v22 (PERFORMANCE OPTIMIZED)
+   ANALOGIA — app.js v22 (PERFORMANCE OPTIMIZED & FIXED)
 ═══════════════════════════════════════ */
 
 const AVAILABLE_FILTERS = ['kodachrome', 'kodak_portra', 'fuji_velvia', 'cinestill', 'teal_orange', 'bleach', 'cross', 'highcontrast_bw', 'l_monochrome', 'infrared'];
+const PROF = {}; // JAVÍTVA: Globális szűrőprofil objektum visszaállítva
 
 const S={
   stream:null,raf:null,ready:false,saving:false,
@@ -219,9 +220,6 @@ void main(){
 let gl,prog,vtex,ltex,detex;
 const U={};
 
-// A dirty-flag optimalizációt elhagytuk (lásd render()): az uniformok minden
-// frame-ben feltöltődnek. A markUniformsDirty így már no-op, de meghagyjuk,
-// hogy a meglévő hívásokat ne kelljen mindenhonnan kiszedni.
 function markUniformsDirty(){ /* no-op */ }
 
 function updateCanvasDimensions() {
@@ -242,16 +240,17 @@ window.addEventListener('resize', updateCanvasDimensions);
 
 function initGL(){
   if (!glCv) return false;
-  // JAVÍTVA: preserveDrawingBuffer:false → nincs frame-enkénti buffer-másolás.
-  // A capture()-ben közvetlenül a drawArrays után olvasunk readPixels-szel
-  // ugyanabban a JS-tickben, így a megőrzött buffer fölösleges.
-  gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:false});
+  // JAVÍTVA: preserveDrawingBuffer értékét visszaállítottuk true-ra, különben a readPixels üres buffert olvas ki exponáláskor
+  gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:true});
   if(!gl)return false;
   const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,FS);
   if(!vs||!fs)return false;
   prog=gl.createProgram();
   gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
-  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){return false;}
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){
+    console.error('Shader fordítási hiba:', gl.getShaderInfoLog(s));
+    return null;
+  }
   gl.useProgram(prog);
   const buf=gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER,buf);
@@ -266,6 +265,12 @@ function initGL(){
    'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_position', 'u_fx_seed', 'u_fx_bw', 'u_fx_quality'
   ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
+  
+  // JAVÍTVA: A detex textúrának adunk egy alap 1x1 pixeles üres adatot, különben amíg nincs aktív dupla expozíció, az "invalid sampler" teljesen feketére rontja a shadert.
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, detex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+
   updateCanvasDimensions();
   return true;
 }
@@ -274,8 +279,6 @@ function mkS(type,src){
   gl.shaderSource(s,src);
   gl.compileShader(s);
   if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
-    // Korábban néma null-t adott vissza → fekete kép, ok nélkül.
-    // Most kiírjuk a fordítási hibát, hogy diagnosztizálható legyen.
     console.error('Shader fordítási hiba:', gl.getShaderInfoLog(s));
     return null;
   }
@@ -308,16 +311,8 @@ function render(){
 
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
 
-  // FONTOS: videóelemnél a texImage2D a megbízható út. A texSubImage2D videóforrással
-  // Android Chrome-on fekete textúrát ad (a videó méret-tulajdonsága nem érhető el a
-  // sub-feltöltéshez), ezért szándékosan NEM használjuk. A tényleges gyorsulást a
-  // preserveDrawingBuffer:false, az alacsonyabb felbontás, a dirty-flag uniformok és
-  // az FX-egyszerűsítés adja — ehhez a feltöltéshez nincs rá szükség.
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
 
-  // Az uniformokat minden frame-ben feltöltjük (mint az eredeti, működő kód).
-  // A dirty-flag alapú spórolást szándékosan elhagytuk: a nyereség elhanyagolható
-  // volt, viszont kockázatos — könnyen vezet "lemaradt" uniformhoz és fekete képhez.
   gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
   gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
   gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
@@ -342,7 +337,6 @@ function render(){
   gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
   gl.uniform1f(U.u_fx_seed, window.FX.seed);
   gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
-  // Élő előnézet: gyors FX-minőség (2 oktávos fBm, warp nélkül).
   gl.uniform1f(U.u_fx_quality, 0.0);
 
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
@@ -614,8 +608,6 @@ function toggleDust() {
     if (window.FX.active) {
       window.FX.randomize();
     }
-    // A randomize() után jelöljük dirty-nek, hogy a friss FX-paraméterek
-    // töltődjenek fel a következő render()-ben.
     markUniformsDirty();
   }
 }
@@ -759,25 +751,19 @@ async function capture(){
       gl.uniform2f(U.u_fx_position, window.FX.position[0], window.FX.position[1]);
       gl.uniform1f(U.u_fx_seed, window.FX.seed);
       gl.uniform1f(U.u_fx_bw, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
-      // JAVÍTVA: capture-kor TELJES FX-minőség (4 oktávos fBm + warp + mask-zaj).
       gl.uniform1f(U.u_fx_quality, 1.0);
 
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 
-      // A render loop dirty-flag mechanizmusa miatt a következő élő frame-nél
-      // újra fel kell tölteni az uniformokat (a quality vissza 0.0-ra is).
       markUniformsDirty();
     }
     
-    // JAVÍTVA: Előre lefoglalt Canvas cache-ek használata capture futásakor a Garbage Collector akadozásainak megszüntetésére
     if (!memoTmpCanvas) { memoTmpCanvas = document.createElement('canvas'); }
     if (!memoSrcCanvas) { memoSrcCanvas = document.createElement('canvas'); }
     
     memoTmpCanvas.width = photoS; memoTmpCanvas.height = photoS;
     memoSrcCanvas.width = cachedCanvasW; memoSrcCanvas.height = cachedCanvasH;
     
-    // A flip után már nem olvasunk vissza getImageData-val, csak rajzolunk,
-    // ezért a willReadFrequently (ami szoftveres canvas-backendet kényszerít) elmarad.
     const tc = memoTmpCanvas.getContext('2d');
     const srcCtx = memoSrcCanvas.getContext('2d');
     
@@ -788,10 +774,6 @@ async function capture(){
       try { await torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
     }
 
-    // JAVÍTVA: a readPixels alulról-fölfelé adja a sorokat. A korábbi megoldás
-    // egy második Uint8Array-be másolta át soronként (CPU-igényes, GC-terhelés).
-    // Helyette a putImageData után a tartalmat függőlegesen tükrözve rajzoljuk ki,
-    // így a teljes JS-ciklus és a második nagy tömb is elmarad.
     srcCtx.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), cachedCanvasW, cachedCanvasH), 0, 0);
 
     tc.save();
@@ -901,9 +883,6 @@ async function initCam(preferredDeviceId = null){
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
   markUniformsDirty();
   try{
-    // JAVÍTVA: 1920 helyett 1440 ideál felbontás. A viewfinder canvas a kijelzőnél
-    // nem nagyobb, a mentett kép pedig 1080px-re skálázódik (OUT=1080), így a
-    // nagyobb forrás csak fölösleges frame-enkénti GPU-feltöltés volt Androidon.
     const constraints = { audio:false, video:{ width:{ideal:1440}, height:{ideal:1440} } };
     if (preferredDeviceId) constraints.video.deviceId = { exact: preferredDeviceId };
     else constraints.video.facingMode = { ideal: 'environment' };
@@ -958,12 +937,9 @@ if (fxRndBtn) {
   fxRndBtn.addEventListener('click', () => {
     if (!window.FX) return;
     if (window.FX.active) {
-      // Már aktív: csak új véletlen FX-paramétereket sorsolunk.
       window.FX.randomize();
       markUniformsDirty();
     } else {
-      // Nincs aktív: a toggleDust bekapcsolja az FX-et, frissíti a gomb állapotát,
-      // randomizál és dirty-nek jelöli — pont amit szeretnénk, üzenet nélkül.
       toggleDust();
     }
   });
@@ -1076,7 +1052,6 @@ window.addEventListener('appinstalled', () => {
     });
     glCv.addEventListener('webglcontextrestored',()=>{
       if(!initGL())return;
-      // Új GL-kontextus → új textúrák és uniformok, ezért dirty-nek jelöljük.
       markUniformsDirty();
       const ld=PROF[S.simKey]?.lut||S.cpuLut;
       if(ld)uploadLUT(ld);
