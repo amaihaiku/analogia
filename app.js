@@ -1,10 +1,10 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v23 (CINEMATIC GRAIN & PERFORMANCE OPTIMIZED)
+   ANALOGIA — app.js v22 (PERFORMANCE OPTIMIZED & FIXED)
 ═══════════════════════════════════════ */
 
 const AVAILABLE_FILTERS = ['kodachrome', 'kodak_portra', 'fuji_velvia', 'cinestill', 'teal_orange', 'bleach', 'cross', 'highcontrast_bw', 'l_monochrome', 'infrared'];
-const PROF = {}; 
+const PROF = {}; // JAVÍTVA: Globális szűrőprofil objektum visszaállítva
 
 const S={
   stream:null,raf:null,ready:false,saving:false,
@@ -26,12 +26,14 @@ let activeBlobUrl = null;
 let activeFilename = "";
 let flashEnabled = false;
 
+// Teljesítmény-optimalizálás: Méretek gyorsítótárazása a Reflow elkerülésére
 let cachedCanvasW = 0;
 let cachedCanvasH = 0;
 
 const vid = document.getElementById('vid');
 const glCv = document.getElementById('gl-canvas');
 
+// Globálisan újrahasznosított canvasok a capture memóriaszivárgásának megakadályozására
 let memoTmpCanvas = null;
 let memoSrcCanvas = null;
 
@@ -110,15 +112,14 @@ void main(){v_uv=vec2(a_pos.x*.5+.5,.5-a_pos.y*.5);gl_Position=vec4(a_pos,0.,1.)
 
 const FS=`#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
-#define INTEGRAL_PRECISION highp
 #else
 precision mediump float;
-#define INTEGRAL_PRECISION mediump
 #endif
 varying vec2 v_uv;
 uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;uniform sampler2D u_de_tex;
 uniform float u_lut_sz;uniform vec2 u_cvs_sz;uniform vec2 u_vid_sz;
 uniform float u_zoom;uniform float u_ev;uniform float u_vig;
+uniform float u_grain;uniform float u_grain_sz;
 uniform float u_shadows;uniform float u_highlights;uniform float u_tone;
 uniform float u_de_active; 
 
@@ -133,12 +134,6 @@ uniform vec2 u_fx_position;
 uniform float u_fx_seed;
 uniform float u_fx_bw;
 uniform float u_fx_quality;
-
-// JAVÍTVA: Új 3D Simplex Approximációs szemcse-uniformok
-uniform float uGrainIntensity;
-uniform float uGrainSize;
-uniform float uTime;
-uniform float uIsBW;
 
 vec2 cropUV(vec2 uv){
   float cAR=u_cvs_sz.x/u_cvs_sz.y,vAR=u_vid_sz.x/u_vid_sz.y;
@@ -159,26 +154,14 @@ vec3 applyLUT(vec3 c){
   vec3 c00=mix(c000,c100,t.r),c10=mix(c010,c110,t.r),c01=mix(c001,c101,t.r),c11=mix(c011,c111,t.r);
   return mix(mix(c00,c10,t.g),mix(c01,c11,t.g),t.b);
 }
-
-// 3D Zaj matematikai alapjai Hermite S-görbével az organikus szemcsecsomókhoz
-float hash3D(vec3 p) {
-  p = fract(p * vec3(443.8975, 397.2973, 491.1871));
-  p += dot(p.xyz, p.yzx + 19.19);
-  return fract(p.x * p.y * p.z);
-}
-float noise3D(vec3 p) {
-  vec3 i = floor(p);
-  vec3 f = fract(p);
-  vec3 fp = f * f * (3.0 - 2.0 * f); // Hermite interpoláció (f * f * (3.0 - 2.0 * f))
-  return mix(
-    mix(mix(hash3D(i + vec3(0.,0.,0.)), hash3D(i + vec3(1.,0.,0.)), fp.x),
-        mix(hash3D(i + vec3(0.,1.,0.)), hash3D(i + vec3(1.,1.,0.)), fp.x), fp.y),
-    mix(mix(hash3D(i + vec3(0.,0.,1.)), hash3D(i + vec3(1.,0.,1.)), fp.x),
-        mix(hash3D(i + vec3(0.,1.,1.)), hash3D(i + vec3(1.,1.,1.)), fp.x), fp.y), fp.z
-  );
-}
-float softLight(float base, float blend) {
-  return (blend < 0.5) ? (base - (1.0 - 2.0 * blend) * base * (1.0 - base)) : (base + (2.0 * blend - 1.0) * (sqrt(base) - base));
+float h2(vec2 p){p=fract(p*vec2(234.34,435.34));p+=dot(p,p+34.23);return fract(p.x*p.y);}
+float sn(vec2 u){vec2 i=floor(u),f=fract(u),s=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1,0)),s.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),s.x),s.y);}
+float gc(float l){float t=1.-abs(l-.5)*2.;return t*t*(3.-2.*t);}
+float gn(vec2 p, float seed){
+  vec2 q = p + seed * vec2(127.1, 311.7);
+  float a = fract(sin(dot(q,           vec2(127.1,311.7)))*43758.5453);
+  float b = fract(sin(dot(q+vec2(1.3,2.7), vec2(269.5,183.3)))*43758.5453);
+  return (a + b) - 1.0;
 }
 
 ${window.FX && window.FX.shader ? window.FX.shader.helpers : ''}
@@ -215,42 +198,20 @@ void main(){
   col.b-=u_tone*0.15;
   col=clamp(col,0.0,1.0);
   
-  // JAVÍTVA: Az FX (fényszivárgás) a kompozícióhoz/kerethez rögzül, NEM a zoomolt
-  // képtartalomhoz. Ezért az FX-számításhoz a zoomtól független, teljes 0..1
-  // képernyőkoordinátát (v_uv) használjuk a 'vuv' helyett, majd visszaállítjuk.
-  // Így a véletlenszerűen dobott fényszivárgás megmarad akkor is, ha a felhasználó
-  // ránagyít az élőképre.
-  vec2 vuv_zoomed = vuv;
-  vuv = v_uv;
   ${window.FX && window.FX.shader ? window.FX.shader.calculation : ''}
-  vuv = vuv_zoomed;
   
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   
-  // JAVÍTVA: Új, fizikai emulációjú 3D Simplex Zaj alapú klaszterezett szemcsézettség
-  if(uGrainIntensity > 0.0){
-    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    float midtoneMask = 4.0 * lum * (1.0 - lum); // Non-lineáris válaszreakció (középtónus kiemelés)
-    
-    float t24 = floor(uTime * 24.0) / 24.0; // Időalapú vibrálás lépcsőzése 24 FPS mozihatásra
-    vec2 px = (v_uv * u_cvs_sz) / uGrainSize;
-    
-    if(uIsBW > 0.5) {
-      // Fekete-Fehér soft-light ezüst-halid emuláció
-      float noiseVal = noise3D(vec3(px, t24));
-      col.r = softLight(col.r, mix(0.5, noiseVal, uGrainIntensity * midtoneMask));
-      col.g = softLight(col.g, mix(0.5, noiseVal, uGrainIntensity * midtoneMask));
-      col.b = softLight(col.b, mix(0.5, noiseVal, uGrainIntensity * midtoneMask));
-    } else {
-      // Színes Dye Clouds: 3 különálló eltolt zajcsatorna, kék réteg +1.6x durvítással
-      float nR = noise3D(vec3(px, t24));
-      float nG = noise3D(vec3(px + vec2(12.34, 56.78), t24));
-      float nB = noise3D(vec3(px + vec2(89.12, 34.56), t24));
-      
-      col.r = clamp(col.r + (nR - 0.5) * uGrainIntensity * midtoneMask, 0.0, 1.0);
-      col.g = clamp(col.g + (nG - 0.5) * uGrainIntensity * midtoneMask, 0.0, 1.0);
-      col.b = clamp(col.b + (nB - 0.5) * uGrainIntensity * 1.6 * midtoneMask, 0.0, 1.0);
-    }
+  if(u_grain>0.){
+    float lum=dot(col,vec3(.2126,.7152,.0722));
+    float gsize=mix(1.9,0.85,u_grain)*u_grain_sz;
+    float gstr=u_grain*0.16;
+    vec2 px=vec2(v_uv.x*u_cvs_sz.x, v_uv.y*u_cvs_sz.y)/gsize;  vec2 jit=vec2(u_fx_seed*50.0, u_fx_seed*30.0);
+    float nr=gn(px+jit,11.0);
+    float ng=gn(px+jit,37.0);
+    float nb=gn(px+jit,71.0)*1.4;
+    float shadowW=mix(1.25,0.45,smoothstep(0.0,1.0,lum));
+    col=clamp(col+vec3(nr,ng,nb)*gstr*shadowW,0.,1.);
   }
   
   gl_FragColor=vec4(col,1.);
@@ -279,13 +240,17 @@ window.addEventListener('resize', updateCanvasDimensions);
 
 function initGL(){
   if (!glCv) return false;
+  // JAVÍTVA: preserveDrawingBuffer értékét visszaállítottuk true-ra, különben a readPixels üres buffert olvas ki exponáláskor
   gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:true});
   if(!gl)return false;
   const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,FS);
   if(!vs||!fs)return false;
   prog=gl.createProgram();
   gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
-  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){return false;}
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){
+    console.error('Shader fordítási hiba:', gl.getShaderInfoLog(s));
+    return null;
+  }
   gl.useProgram(prog);
   const buf=gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER,buf);
@@ -296,15 +261,15 @@ function initGL(){
   gl.uniform1i(gl.getUniformLocation(prog,'u_lut_tex'),1);
   gl.uniform1i(gl.getUniformLocation(prog,'u_de_tex'),2);
   
-  ['u_lut_sz','u_ev','u_vig','u_shadows','u_highlights','u_tone', 'u_de_active',
-   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_position', 'u_fx_seed', 'u_fx_bw', 'u_fx_quality',
-   'uGrainIntensity', 'uGrainSize', 'uTime', 'uIsBW'
+  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active',
+   'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_position', 'u_fx_seed', 'u_fx_bw', 'u_fx_quality'
   ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
   
+  // JAVÍTVA: A detex textúrának adunk egy alap 1x1 pixeles üres adatot, különben amíg nincs aktív dupla expozíció, az "invalid sampler" teljesen feketére rontja a shadert.
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, detex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
 
   updateCanvasDimensions();
   return true;
@@ -341,12 +306,6 @@ function uploadLUT(ld){
 }
 
 function render(){
-  // JAVÍTVA: Mielőtt új frame-et ütemezünk, leállítjuk az esetleges korábbi
-  // render-láncot. Az initCam (loadedmetadata) és a kameraváltás többször is
-  // hívhatta a render()-t, így párhuzamos requestAnimationFrame láncok indultak,
-  // amelyek frame-enként felváltva töltötték a uniformokat — ez okozta a
-  // függőlegesen kettéosztott, villogó képet. Egyetlen aktív loopot garantálunk.
-  if (S.raf) cancelAnimationFrame(S.raf);
   S.raf=requestAnimationFrame(render);
   if(!S.ready||!vid || vid.readyState<2)return;
 
@@ -356,14 +315,9 @@ function render(){
 
   gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
   gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
-  gl.uniform1f(U.u_vig,S.vignette);
+  gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
+  gl.uniform1f(U.u_grain_sz,S.grainSize);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
-
-  // JAVÍTVA: Szemcse adatok és idő dinamikus átadása a GPU felé
-  gl.uniform1f(U.uGrainIntensity, S.grain * 0.2);
-  gl.uniform1f(U.uGrainSize, 1.0 + S.grain * (3.5 - 1.0));
-  gl.uniform1f(U.uTime, performance.now() / 1000.0);
-  gl.uniform1f(U.uIsBW, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
 
   if (S.deActive && S.deStage === 1) {
     gl.activeTexture(gl.TEXTURE2);
@@ -416,7 +370,7 @@ function buildDial(){
   el.innerHTML='';
   const m=MODES[S.mode],N=nT();
   const cIdx=m.hasCenter?Math.round((0-m.min)/m.step):-1;
-  for(let i=0; i<=N; i++){
+  for(let i=0;i<=N;i++){
     const t=document.createElement('div'),maj=i%5===0,isC=(i===cIdx);
     t.className='dt'+(maj?' maj':'')+(isC?' zero':'');
     t.style.height=(maj?28:15)+'px';
@@ -775,15 +729,10 @@ async function capture(){
       try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
       gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
       gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
-      gl.uniform1f(U.u_vig,S.vignette);
+      gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
+      gl.uniform1f(U.u_grain_sz,S.grainSize);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
       
-      // JAVÍTVA: Szemcse uniformok küldése rögzítéskor is
-      gl.uniform1f(U.uGrainIntensity, S.grain * 0.2);
-      gl.uniform1f(U.uGrainSize, 1.0 + S.grain * (3.5 - 1.0));
-      gl.uniform1f(U.uTime, performance.now() / 1000.0);
-      gl.uniform1f(U.uIsBW, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
-
       if(S.deActive && S.deStage === 1) {
         gl.uniform1f(U.u_de_active, 1.0);
         gl.activeTexture(gl.TEXTURE2);
@@ -934,7 +883,6 @@ async function initCam(preferredDeviceId = null){
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
   markUniformsDirty();
   try{
-    // JAVÍTVA: Fix ultra-gyors 720x720 élőkép felbontás az akadozások megszüntetésére FX módban is
     const constraints = { audio:false, video:{ width:{ideal:720}, height:{ideal:720} } };
     if (preferredDeviceId) constraints.video.deviceId = { exact: preferredDeviceId };
     else constraints.video.facingMode = { ideal: 'environment' };
