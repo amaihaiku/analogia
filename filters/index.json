@@ -9,6 +9,13 @@
     "sub": "Cinematic Gold", 
     "isBW": false 
   },
+  { 
+    "id": "ilfordhp5", 
+    "type": "cube", 
+    "name": "ilfordhp5", 
+    "sub": "BW", 
+    "isBW": true 
+  },
   { "id": "cinestill", "type": "js" },
   { "id": "teal_orange", "type": "js" },
   { "id": "bleach", "type": "js" },
