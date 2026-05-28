@@ -119,8 +119,11 @@ varying vec2 v_uv;
 uniform sampler2D u_vid_tex;uniform sampler2D u_lut_tex;uniform sampler2D u_de_tex;
 uniform float u_lut_sz;uniform vec2 u_cvs_sz;uniform vec2 u_vid_sz;
 uniform float u_zoom;uniform float u_ev;uniform float u_vig;
-uniform float u_grain;uniform float u_grain_sz;
 uniform float u_shadows;uniform float u_highlights;uniform float u_tone;
+uniform float uGrainIntensity;
+uniform float uGrainSize;
+uniform float uTime;
+uniform float uIsBW;
 uniform float u_de_active; 
 
 uniform float u_fx_active;
@@ -154,15 +157,9 @@ vec3 applyLUT(vec3 c){
   vec3 c00=mix(c000,c100,t.r),c10=mix(c010,c110,t.r),c01=mix(c001,c101,t.r),c11=mix(c011,c111,t.r);
   return mix(mix(c00,c10,t.g),mix(c01,c11,t.g),t.b);
 }
-float h2(vec2 p){p=fract(p*vec2(234.34,435.34));p+=dot(p,p+34.23);return fract(p.x*p.y);}
-float sn(vec2 u){vec2 i=floor(u),f=fract(u),s=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1,0)),s.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),s.x),s.y);}
-float gc(float l){float t=1.-abs(l-.5)*2.;return t*t*(3.-2.*t);}
-float gn(vec2 p, float seed){
-  vec2 q = p + seed * vec2(127.1, 311.7);
-  float a = fract(sin(dot(q,           vec2(127.1,311.7)))*43758.5453);
-  float b = fract(sin(dot(q+vec2(1.3,2.7), vec2(269.5,183.3)))*43758.5453);
-  return (a + b) - 1.0;
-}
+float hash3D(vec3 p){p=fract(p*vec3(443.8975,397.2973,491.1871));p+=dot(p.xyz,p.yzx+19.19);return fract(p.x*p.y*p.z);}
+float noise3D(vec3 p){vec3 i=floor(p);vec3 f=fract(p);vec3 fp=f*f*(3.0-2.0*f);return mix(mix(mix(hash3D(i+vec3(0.,0.,0.)),hash3D(i+vec3(1.,0.,0.)),fp.x),mix(hash3D(i+vec3(0.,1.,0.)),hash3D(i+vec3(1.,1.,0.)),fp.x),fp.y),mix(mix(hash3D(i+vec3(0.,0.,1.)),hash3D(i+vec3(1.,0.,1.)),fp.x),mix(hash3D(i+vec3(0.,1.,1.)),hash3D(i+vec3(1.,1.,1.)),fp.x),fp.y),fp.z);}
+float softLight(float base,float blend){return(blend<0.5)?(base-(1.0-2.0*blend)*base*(1.0-base)):(base+(2.0*blend-1.0)*(sqrt(base)-base));}
 
 ${window.FX && window.FX.shader ? window.FX.shader.helpers : ''}
 
@@ -198,20 +195,32 @@ void main(){
   col.b-=u_tone*0.15;
   col=clamp(col,0.0,1.0);
   
+  // FX (fényszivárgás) a képernyő-koordinátán fut, NEM a zoomolt vuv-on.
+  // Így nagyításkor sem tűnik el, és a mentett képen is ugyanúgy látszik.
+  vec2 vuv_saved=vuv; vuv=v_uv;
   ${window.FX && window.FX.shader ? window.FX.shader.calculation : ''}
+  vuv=vuv_saved;
   
   if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
   
-  if(u_grain>0.){
-    float lum=dot(col,vec3(.2126,.7152,.0722));
-    float gsize=mix(1.9,0.85,u_grain)*u_grain_sz;
-    float gstr=u_grain*0.16;
-    vec2 px=vec2(v_uv.x*u_cvs_sz.x, v_uv.y*u_cvs_sz.y)/gsize;  vec2 jit=vec2(u_fx_seed*50.0, u_fx_seed*30.0);
-    float nr=gn(px+jit,11.0);
-    float ng=gn(px+jit,37.0);
-    float nb=gn(px+jit,71.0)*1.4;
-    float shadowW=mix(1.25,0.45,smoothstep(0.0,1.0,lum));
-    col=clamp(col+vec3(nr,ng,nb)*gstr*shadowW,0.,1.);
+  if(uGrainIntensity>0.0){
+    float lum=dot(col,vec3(0.2126,0.7152,0.0722));
+    float midtoneMask=4.0*lum*(1.0-lum);
+    float t24=floor(uTime*24.0)/24.0;
+    vec2 px=(v_uv*u_cvs_sz)/uGrainSize;
+    if(uIsBW>0.5){
+      float noiseVal=noise3D(vec3(px,t24));
+      col.r=softLight(col.r,mix(0.5,noiseVal,uGrainIntensity*midtoneMask));
+      col.g=col.r;
+      col.b=col.r;
+    } else {
+      float nR=noise3D(vec3(px,t24));
+      float nG=noise3D(vec3(px+vec2(12.34,56.78),t24));
+      float nB=noise3D(vec3(px+vec2(89.12,34.56),t24));
+      col.r=clamp(col.r+(nR-0.5)*uGrainIntensity*midtoneMask,0.0,1.0);
+      col.g=clamp(col.g+(nG-0.5)*uGrainIntensity*midtoneMask,0.0,1.0);
+      col.b=clamp(col.b+(nB-0.5)*uGrainIntensity*1.6*midtoneMask,0.0,1.0);
+    }
   }
   
   gl_FragColor=vec4(col,1.);
@@ -225,9 +234,13 @@ function markUniformsDirty(){ /* no-op */ }
 function updateCanvasDimensions() {
   if (!glCv || !glCv.parentElement) return;
   const p = glCv.parentElement;
+  // FX aktív esetén élőben fél felbontáson fut a shader (kevesebb pixel),
+  // a CSS méret változatlan → vizuálisan alig észrevehető, GPU terhelés ~4x kevesebb.
+  // Capture-kor mindig teljes felbontás.
   const dpr = window.devicePixelRatio || 1;
-  cachedCanvasW = Math.round(p.clientWidth * dpr);
-  cachedCanvasH = Math.round(p.clientHeight * dpr);
+  const fxScale = (window.FX && window.FX.active && !S.saving) ? 0.5 : 1.0;
+  cachedCanvasW = Math.round(p.clientWidth * dpr * fxScale);
+  cachedCanvasH = Math.round(p.clientHeight * dpr * fxScale);
   
   if(glCv.width !== cachedCanvasW || glCv.height !== cachedCanvasH){
     glCv.width = cachedCanvasW;
@@ -261,7 +274,8 @@ function initGL(){
   gl.uniform1i(gl.getUniformLocation(prog,'u_lut_tex'),1);
   gl.uniform1i(gl.getUniformLocation(prog,'u_de_tex'),2);
   
-  ['u_lut_sz','u_ev','u_vig','u_grain','u_grain_sz','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active',
+  ['u_lut_sz','u_ev','u_vig','u_zoom','u_cvs_sz','u_vid_sz','u_shadows','u_highlights','u_tone', 'u_de_active',
+   'uGrainIntensity','uGrainSize','uTime','uIsBW',
    'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_position', 'u_fx_seed', 'u_fx_bw', 'u_fx_quality'
   ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
@@ -315,9 +329,14 @@ function render(){
 
   gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
   gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
-  gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
-  gl.uniform1f(U.u_grain_sz,S.grainSize);
+  gl.uniform1f(U.u_vig,S.vignette);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
+
+  // Grain: slider 0..1 → uGrainIntensity 0..0.2, uGrainSize 1.0..3.5
+  gl.uniform1f(U.uGrainIntensity, S.grain * 0.2);
+  gl.uniform1f(U.uGrainSize, 1.0 + S.grain * 2.5);
+  gl.uniform1f(U.uTime, performance.now() / 1000.0);
+  gl.uniform1f(U.uIsBW, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
 
   if (S.deActive && S.deStage === 1) {
     gl.activeTexture(gl.TEXTURE2);
@@ -608,6 +627,8 @@ function toggleDust() {
     if (window.FX.active) {
       window.FX.randomize();
     }
+    // FX be/ki: canvas felbontás frissítése (aktív=fél DPR, inaktív=teljes DPR)
+    updateCanvasDimensions();
     markUniformsDirty();
   }
 }
@@ -689,6 +710,8 @@ async function capture(){
 
   triggerMechanicalShutter(async () => {
     S.saving=true;
+    // Mentés előtt teljes felbontás (S.saving=true → updateCanvasDimensions teljes DPR-t ad)
+    updateCanvasDimensions();
 
     if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
 
@@ -729,9 +752,14 @@ async function capture(){
       try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
       gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
       gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
-      gl.uniform1f(U.u_vig,S.vignette);gl.uniform1f(U.u_grain,S.grain);
-      gl.uniform1f(U.u_grain_sz,S.grainSize);
+      gl.uniform1f(U.u_vig,S.vignette);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
+      
+      // Grain capture-kor: ugyanaz a logika mint renderben
+      gl.uniform1f(U.uGrainIntensity, S.grain * 0.2);
+      gl.uniform1f(U.uGrainSize, 1.0 + S.grain * 2.5);
+      gl.uniform1f(U.uTime, performance.now() / 1000.0);
+      gl.uniform1f(U.uIsBW, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
       
       if(S.deActive && S.deStage === 1) {
         gl.uniform1f(U.u_de_active, 1.0);
@@ -842,6 +870,8 @@ async function capture(){
         const fl = document.getElementById('hud-focus-label'); if(fl) fl.textContent = 'AF';
       }
       S.saving=false;
+      // Mentés után visszaváltás: ha FX aktív, fél DPR-re vissza
+      updateCanvasDimensions();
     },'image/jpeg',.92);
   });
 }
