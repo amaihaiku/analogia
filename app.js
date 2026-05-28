@@ -81,39 +81,88 @@ function bake(fn){
   return{d:lut,sz:N};
 }
 
+// 3D LUT (.cube) Fájl Értelmező
+function parseCube(text) {
+  const lines = text.split('\n');
+  let size = 0;
+  const data = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
+    if (!line || line.startsWith('#')) continue;
+    
+    if (line.startsWith('LUT_3D_SIZE')) {
+      const parts = line.split(/\s+/);
+      size = parseInt(parts[1], 10);
+      continue;
+    }
+    if (line.startsWith('TITLE') || line.startsWith('DOMAIN_MIN') || line.startsWith('DOMAIN_MAX')) {
+      continue;
+    }
+    
+    const parts = line.split(/\s+/);
+    if (parts.length >= 3) {
+      const r = parseFloat(parts[0]);
+      const g = parseFloat(parts[1]);
+      const b = parseFloat(parts[2]);
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+        data.push(r, g, b);
+      }
+    }
+  }
+  return { d: new Float32Array(data), sz: size };
+}
+
 async function loadExternalFilters() {
-  // A szűrők listája a filters/index.json-ból jön.
-  // Új szűrő hozzáadásához csak azt a fájlt kell szerkeszteni.
-  let filterIds = [];
+  let filters = [];
   try {
     const res = await fetch('filters/index.json');
-    filterIds = await res.json();
+    filters = await res.json();
   } catch(e) {
     console.warn('filters/index.json nem tölthető be:', e);
     return;
   }
 
-  const promises = filterIds.map(id => {
-    return new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = `filters/${id}.js`;
-      script.onload = resolve;
-      script.onerror = resolve;
-      document.head.appendChild(script);
-    });
+  const promises = filters.map(f => {
+    const isCube = (typeof f === 'object' && f.type === 'cube');
+    const id = typeof f === 'string' ? f : f.id;
+    
+    if (isCube) {
+      return fetch(`filters/${id}.cube`)
+        .then(res => res.text())
+        .then(text => {
+          const lut = parseCube(text);
+          if (lut.sz > 0) {
+            PROF[id] = {
+              name: f.name || id,
+              sub: f.sub || "3D LUT",
+              lut: lut,
+              isBW: !!f.isBW
+            };
+          }
+        })
+        .catch(e => console.warn(`.cube betöltési hiba (${id}):`, e));
+    } else {
+      return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = `filters/${id}.js`;
+        script.onload = () => {
+          if (window.PD && window.PD[id]) {
+            PROF[id] = {
+              name: window.PD[id].name,
+              sub: window.PD[id].sub,
+              lut: bake(window.PD[id].fn),
+              isBW: window.PD[id].isBW || false
+            };
+          }
+          resolve();
+        };
+        script.onerror = resolve;
+        document.head.appendChild(script);
+      });
+    }
   });
   await Promise.all(promises);
-
-  for (const id of filterIds) {
-    if (window.PD && window.PD[id]) {
-      PROF[id] = {
-        name: window.PD[id].name,
-        sub: window.PD[id].sub,
-        lut: bake(window.PD[id].fn),
-        isBW: window.PD[id].isBW || false
-      };
-    }
-  }
 }
 
 /* ── WebGL Engine ── */
@@ -844,7 +893,7 @@ async function capture(){
       const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
       sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
       let tx = photoX + photoS - fs * 0.5;
-      let ty = photoY + photoS - fs * 0.5;
+      let ty = photoY + photoS - fs * 0.4;
       if (frame === 'film') {
         ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
       }
@@ -1107,9 +1156,9 @@ window.addEventListener('appinstalled', () => {
 
   buildDial();
   await loadExternalFilters();
-  if (PROF['kodachrome']) {
-    uploadLUT(PROF['kodachrome'].lut);
-    const fl = document.getElementById('film-label'); if(fl) fl.textContent = PROF['kodachrome'].name;
+  if (PROF[S.simKey]) {
+    uploadLUT(PROF[S.simKey].lut);
+    const fl = document.getElementById('film-label'); if(fl) fl.textContent = PROF[S.simKey].name;
   }
   syncDial();
   syncDateToggleAvailability();
