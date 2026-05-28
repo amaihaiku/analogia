@@ -299,8 +299,12 @@ function updateCanvasDimensions() {
   // Élőképen fél DPR-rel futunk ha FX vagy grain aktív: ~4x kevesebb pixel a shadernek.
   // Capture-kor (S.saving=true) mindig teljes felbontás.
   const dpr = window.devicePixelRatio || 1;
-  const heavyEffect = (window.FX && window.FX.active) || (S.grain > 0);
+  
+  // JAVÍTVA: Ha bármilyen LUT szűrő aktív (S.simKey létezik), azt is nehéz effektnek tekintjük, 
+  // így a .cube fájlok is azonnal a csökkentett (0.5-ös) felbontású render-útra terelődnek élő nézetben!
+  const heavyEffect = (window.FX && window.FX.active) || (S.grain > 0) || (S.simKey && PROF[S.simKey]);
   const fxScale = (heavyEffect && !S.saving) ? 0.5 : 1.0;
+  
   cachedCanvasW = Math.round(p.clientWidth * dpr * fxScale);
   cachedCanvasH = Math.round(p.clientHeight * dpr * fxScale);
   
@@ -581,6 +585,11 @@ function buildFilmList(){
     it.onclick=()=>{
       S.simKey=k;uploadLUT(p.lut);
       markUniformsDirty();
+      
+      // JAVÍTVA: Filter váltásakor azonnal frissítjük a canvas felbontást, 
+      // hogy a frissen kiválasztott .cube LUT rögtön a csökkentett minőségű úton induljon
+      updateCanvasDimensions();
+      
       const lbl = document.getElementById('film-label');
       if (lbl) lbl.textContent=p.name;
       closeModal();
@@ -893,7 +902,7 @@ async function capture(){
       const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
       sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
       let tx = photoX + photoS - fs * 0.5;
-      let ty = photoY + photoS - fs * 0.4;
+      let ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
       if (frame === 'film') {
         ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
       }
@@ -1118,6 +1127,109 @@ if (exitBtn) {
   });
 }
 
+document.querySelectorAll('.mode-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');S.mode=btn.dataset.mode;buildDial();syncDial();
+  });
+});
+
+const deTogBtn = document.getElementById('de-toggle-btn'); if(deTogBtn) deTogBtn.addEventListener('click', toggleDoubleExposure);
+const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTogBtn.addEventListener('click', cycleCamera);
+const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleFlash);
+const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) dustTogBtn.addEventListener('click', toggleDust);
+
+const fxRndBtn = document.getElementById('fx-rnd-btn');
+if (fxRndBtn) {
+  fxRndBtn.addEventListener('click', () => {
+    if (!window.FX) return;
+    if (window.FX.active) {
+      window.FX.randomize();
+      markUniformsDirty();
+    } else {
+      toggleDust();
+    }
+  });
+}
+
+function syncDateToggleAvailability() {
+  const dateTog = document.getElementById('date-tog');
+  if (!dateTog) return;
+  const frame = getSelectedFrame();
+  const dateGroup = dateTog.closest('.toggle-group');
+  if (frame === 'antik') {
+    if (dateTog.checked) dateTog.checked = false;
+    dateTog.disabled = true;
+    if (dateGroup) dateGroup.classList.add('disabled');
+  } else {
+    dateTog.disabled = false;
+    if (dateGroup) dateGroup.classList.remove('disabled');
+  }
+}
+
+document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    syncDateToggleAvailability();
+    updateLiveFramePreview();
+    updateLiveDate();
+  });
+});
+
+const dateTogEl = document.getElementById('date-tog');
+if (dateTogEl) {
+  dateTogEl.addEventListener('change', updateLiveDate);
+}
+
+const photoCloseBtn = document.getElementById('photo-overlay-close');
+if (photoCloseBtn) {
+  photoCloseBtn.onclick = () => {
+    const photoOverlay = document.getElementById('photo-overlay');
+    if (photoOverlay) photoOverlay.classList.add('hidden');
+  };
+}
+
+const natInstBtn = document.getElementById('native-install-btn');
+if (natInstBtn) {
+  natInstBtn.addEventListener('click', async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        deferredPrompt = null;
+        const desc = document.querySelector('.install-desc');
+        const actions = document.querySelector('.install-actions');
+        if (desc) {
+          desc.innerHTML = "<span style='color: #c8a84b; font-weight: bold; display: block; margin-bottom: 8px;'>✓ SIKERES TELEPÍTÉS!</span>" +
+                           "Az Analogia ikonja bekerült a menüdbe / kezdőképernyődre.<br>" +
+                           "Ezt a böngészőlapot most már bezárhatod.";
+        }
+        if (actions) actions.style.display = 'none';
+        setTimeout(() => { window.close(); }, 1500);
+      }
+    } else {
+      const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (isiOS) alert("iOS-en: Kattints a Safari alsó Megosztás gombjára, majd a 'Hozzáadás a kezdőképernyőhöz' opcióra!");
+      else alert("Kérjük, használd a böngésző menüjének 'Telepítés' vagy 'Hozzáadás a főképernyőhöz' pontját!");
+    }
+  });
+}
+
+const exitBtn = document.getElementById('exit-btn');
+if (exitBtn) {
+  exitBtn.addEventListener('click', () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(()=>{});
+    } else {
+      if(S.stream) {
+        S.stream.getTracks().forEach(t=>t.stop());
+        S.ready = false;
+        const npEl = document.getElementById('noperm'); if(npEl) npEl.style.display = 'flex';
+      }
+      window.close();
+    }
+  });
+}
+
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('gesturechange', e => e.preventDefault());
 document.addEventListener('touchmove', e => {
@@ -1160,6 +1272,10 @@ window.addEventListener('appinstalled', () => {
     uploadLUT(PROF[S.simKey].lut);
     const fl = document.getElementById('film-label'); if(fl) fl.textContent = PROF[S.simKey].name;
   }
+  
+  // JAVÍTVA: Biztosítjuk a helyes indításkori felbontás-számítást a kezdő LUT betöltése után
+  updateCanvasDimensions();
+  
   syncDial();
   syncDateToggleAvailability();
   updateLiveFramePreview();
