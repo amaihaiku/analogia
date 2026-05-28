@@ -1,1 +1,19 @@
-["kodachrome", "kodak_portra", "fuji_velvia", "wanderson", "cinestill", "teal_orange", "bleach", "cross", "highcontrast_bw", "l_monochrome", "infrared"]
+[
+  { "id": "kodachrome", "type": "js" },
+  { "id": "kodak_portra", "type": "js" },
+  { "id": "fuji_velvia", "type": "js" },
+  { 
+    "id": "wanderson", 
+    "type": "cube", 
+    "name": "Wanderson", 
+    "sub": "Cinematic Gold", 
+    "isBW": false 
+  },
+  { "id": "cinestill", "type": "js" },
+  { "id": "teal_orange", "type": "js" },
+  { "id": "bleach", "type": "js" },
+  { "id": "cross", "type": "js" },
+  { "id": "highcontrast_bw", "type": "js" },
+  { "id": "l_monochrome", "type": "js" },
+  { "id": "infrared", "type": "js" }
+]
