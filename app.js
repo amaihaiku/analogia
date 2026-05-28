@@ -209,10 +209,13 @@ void main(){
     float t24=floor(uTime*24.0)/24.0;
     vec2 px=(v_uv*u_cvs_sz)/uGrainSize;
     if(uIsBW>0.5){
+      // BW: egyforma luma-zaj mind a 3 csatornára soft-light-tal.
+      // col.g/col.b NEM felülírt, ezért a tone (meleg/hideg tónus) megmarad.
       float noiseVal=noise3D(vec3(px,t24));
-      col.r=softLight(col.r,mix(0.5,noiseVal,uGrainIntensity*midtoneMask));
-      col.g=col.r;
-      col.b=col.r;
+      float grainAmt=uGrainIntensity*midtoneMask;
+      col.r=softLight(col.r,mix(0.5,noiseVal,grainAmt));
+      col.g=softLight(col.g,mix(0.5,noiseVal,grainAmt));
+      col.b=softLight(col.b,mix(0.5,noiseVal,grainAmt));
     } else {
       float nR=noise3D(vec3(px,t24));
       float nG=noise3D(vec3(px+vec2(12.34,56.78),t24));
@@ -234,11 +237,11 @@ function markUniformsDirty(){ /* no-op */ }
 function updateCanvasDimensions() {
   if (!glCv || !glCv.parentElement) return;
   const p = glCv.parentElement;
-  // FX aktív esetén élőben fél felbontáson fut a shader (kevesebb pixel),
-  // a CSS méret változatlan → vizuálisan alig észrevehető, GPU terhelés ~4x kevesebb.
-  // Capture-kor mindig teljes felbontás.
+  // Élőképen fél DPR-rel futunk ha FX vagy grain aktív: ~4x kevesebb pixel a shadernek.
+  // Capture-kor (S.saving=true) mindig teljes felbontás.
   const dpr = window.devicePixelRatio || 1;
-  const fxScale = (window.FX && window.FX.active && !S.saving) ? 0.5 : 1.0;
+  const heavyEffect = (window.FX && window.FX.active) || (S.grain > 0);
+  const fxScale = (heavyEffect && !S.saving) ? 0.5 : 1.0;
   cachedCanvasW = Math.round(p.clientWidth * dpr * fxScale);
   cachedCanvasH = Math.round(p.clientHeight * dpr * fxScale);
   
@@ -377,7 +380,10 @@ function nT(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
 function getV(){return{exposure:S.exposure,shadows:S.shadows,highlights:S.highlights,tone:S.tone,grain:S.grain,vignette:S.vignette}[S.mode];}
 function setV(v){
   const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
+  const prevGrain=S.grain;
   if(S.mode==='exposure')S.exposure=v;else if(S.mode==='shadows')S.shadows=v;else if(S.mode==='highlights')S.highlights=v;else if(S.mode==='tone')S.tone=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
+  // Ha a grain 0-ról indult el vagy 0-ra tért vissza, frissítjük a canvas felbontást
+  if(S.mode==='grain' && ((prevGrain===0)!==(S.grain===0))) updateCanvasDimensions();
   markUniformsDirty();
   return v;
 }
