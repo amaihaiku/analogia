@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="style.css?v=23"/>
+<link rel="stylesheet" href="style.css?v=24"/>
 </head>
 <body>
 
@@ -56,11 +56,6 @@
       <button class="modal-close" id="modal-close"></button>
     </div>
     <div class="modal-list" id="film-list"></div>
-    <div class="modal-sep"></div>
-    <label class="modal-upload-btn">
-      <span>+ SAJÁT LUT (.cube)</span>
-      <input type="file" id="lut-upload" accept=".cube"/>
-    </label>
   </div>
 </div>
 
@@ -185,11 +180,11 @@
 
 <video id="vid" playsinline autoplay muted style="display:none"></video>
 <canvas id="save-canvas" style="display:none"></canvas>
-<script src="fx.js?v=23"></script>
-<script src="app.js?v=23"></script>
+<script src="fx.js?v=24"></script>
+<script src="app.js?v=24"></script>
 <script>
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=23');
+    navigator.serviceWorker.register('./sw.js?v=24');
   }
 </script>
 </body>

@@ -3,12 +3,11 @@
    ANALOGIA — app.js v22 (PERFORMANCE OPTIMIZED & FIXED)
 ═══════════════════════════════════════ */
 
-const AVAILABLE_FILTERS = ['kodachrome', 'kodak_portra', 'fuji_velvia', 'cinestill', 'teal_orange', 'bleach', 'cross', 'highcontrast_bw', 'l_monochrome', 'infrared'];
-const PROF = {}; // JAVÍTVA: Globális szűrőprofil objektum visszaállítva
+const PROF = {};
 
 const S={
   stream:null,raf:null,ready:false,saving:false,
-  simKey:'kodachrome',cpuLut:null,
+  simKey:'kodachrome',
   exposure:0,shadows:0,highlights:0,tone:0,grain:0,grainSize:2,vignette:0,
   zoom:1.0,
   mode:'exposure',
@@ -83,18 +82,29 @@ function bake(fn){
 }
 
 async function loadExternalFilters() {
-  const promises = AVAILABLE_FILTERS.map(id => {
+  // A szűrők listája a filters/index.json-ból jön.
+  // Új szűrő hozzáadásához csak azt a fájlt kell szerkeszteni.
+  let filterIds = [];
+  try {
+    const res = await fetch('filters/index.json');
+    filterIds = await res.json();
+  } catch(e) {
+    console.warn('filters/index.json nem tölthető be:', e);
+    return;
+  }
+
+  const promises = filterIds.map(id => {
     return new Promise((resolve) => {
       const script = document.createElement('script');
-      script.src = `filters/${id}.js?v=21`;
+      script.src = `filters/${id}.js`;
       script.onload = resolve;
-      script.onerror = resolve; 
+      script.onerror = resolve;
       document.head.appendChild(script);
     });
   });
   await Promise.all(promises);
-  
-  for (const id of AVAILABLE_FILTERS) {
+
+  for (const id of filterIds) {
     if (window.PD && window.PD[id]) {
       PROF[id] = {
         name: window.PD[id].name,
@@ -517,10 +527,10 @@ function buildFilmList(){
   const list=document.getElementById('film-list'); if(!list) return;
   list.innerHTML='';
   for(const[k,p]of Object.entries(PROF)){
-    const it=document.createElement('div');it.className='film-item'+(S.simKey===k&&!S.cpuLut?' active':'');
+    const it=document.createElement('div');it.className='film-item'+(S.simKey===k?' active':'');
     it.innerHTML=`<div class="film-dot"></div><div><div class="film-name">${p.name}</div><div class="film-sub">${p.sub}</div></div>`;
     it.onclick=()=>{
-      S.simKey=k;S.cpuLut=null;uploadLUT(p.lut);
+      S.simKey=k;uploadLUT(p.lut);
       markUniformsDirty();
       const lbl = document.getElementById('film-label');
       if (lbl) lbl.textContent=p.name;
@@ -1089,7 +1099,7 @@ window.addEventListener('appinstalled', () => {
     glCv.addEventListener('webglcontextrestored',()=>{
       if(!initGL())return;
       markUniformsDirty();
-      const ld=PROF[S.simKey]?.lut||S.cpuLut;
+      const ld=PROF[S.simKey]?.lut;
       if(ld)uploadLUT(ld);
       if(S.stream)render();
     });

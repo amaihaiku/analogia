@@ -7,7 +7,7 @@
    - aktiváláskor a régi verziójú cache-ek törlődnek.
 ═══════════════════════════════════════ */
 
-const VERSION = 'v24';
+const VERSION = 'v25';
 const CACHE = 'analogia-' + VERSION;
 
 // Előre cache-elendő statikus elemek (a verziózott query nélkül is)
@@ -18,19 +18,10 @@ const PRECACHE = [
   './app.js',
   './fx.js',
   './manifest.json',
+  './filters/index.json',
   './antik_keret_web.png',
   './icon-512.png',
-  './icon-180.png',
-  './filters/kodachrome.js',
-  './filters/kodak_portra.js',
-  './filters/fuji_velvia.js',
-  './filters/cinestill.js',
-  './filters/teal_orange.js',
-  './filters/bleach.js',
-  './filters/cross.js',
-  './filters/highcontrast_bw.js',
-  './filters/l_monochrome.js',
-  './filters/infrared.js'
+  './icon-180.png'
 ];
 
 self.addEventListener('install', (e) => {
@@ -60,7 +51,7 @@ self.addEventListener('activate', (e) => {
 
 // Eldönti, hogy egy kérés "kódfájl"-e (network-first), vagy eszköz (cache-first)
 function isCodeAsset(url) {
-  return /\.(html|js|css)(\?|$)/i.test(url) || url.endsWith('/');
+  return /\.(html|js|css|json)(\?|$)/i.test(url) || url.endsWith('/');
 }
 
 self.addEventListener('fetch', (e) => {
