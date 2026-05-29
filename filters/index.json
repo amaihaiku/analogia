@@ -16,6 +16,13 @@
     "sub": "BW", 
     "isBW": true 
   },
+    { 
+    "id": "aerochrome", 
+    "type": "cube", 
+    "name": "Aerochrome", 
+    "sub": "color ir", 
+    "isBW": false 
+  },
   { "id": "cinestill", "type": "js" },
   { "id": "teal_orange", "type": "js" },
   { "id": "bleach", "type": "js" },
