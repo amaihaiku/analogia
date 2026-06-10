@@ -1,7 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v22 (PERFORMANCE OPTIMIZED & FIXED)
+   ANALOGIA — app.js v23 (HI-RES CAPTURE + LOW-LAG PREVIEW)
 ═══════════════════════════════════════ */
+console.log('ANALOGIA app.js v23 betöltve');
 
 const PROF = {};
 
@@ -763,24 +764,33 @@ function trackSupportsTorch(track) {
 
 // A futó stream felbontásának átállítása újranyitás nélkül.
 // Exponáláskor felváltunk CAPTURE_RES-re, mentés után vissza PREVIEW_RES-re.
-// Ha az eszköz nem támogatja a váltást, csendben a jelenlegi felbontáson marad.
+// FONTOS: az "ideal" önmagában csak javaslat – lefelé váltásnál sok böngésző
+// figyelmen kívül hagyja és marad a nagy felbontáson. Ezért "max"-szal kényszerítjük.
+// Ha a track így is beragad nagy felbontáson, végső megoldásként újranyitjuk a streamet.
 async function setStreamResolution(px, waitFrames = true) {
   if (!S.stream) return false;
   const tk = S.stream.getVideoTracks()[0];
   if (!tk) return false;
   let ok = true;
   try {
-    await tk.applyConstraints({ width: { ideal: px }, height: { ideal: px } });
+    await tk.applyConstraints({ width: { ideal: px, max: px }, height: { ideal: px, max: px } });
     if (waitFrames) await waitForVideoFrames(3, 250);
   } catch (_) { ok = false; }
-  try {
-    const st = tk.getSettings();
-    S.vidW = st.width || vid.videoWidth || S.vidW;
-    S.vidH = st.height || vid.videoHeight || S.vidH;
-    const resEl = document.getElementById('hud-res');
-    if (resEl) resEl.textContent = S.vidW + '×' + S.vidH;
-  } catch (_) {}
+  let st = {};
+  try { st = tk.getSettings(); } catch (_) {}
+  S.vidW = st.width || vid.videoWidth || S.vidW;
+  S.vidH = st.height || vid.videoHeight || S.vidH;
+  const resEl = document.getElementById('hud-res');
+  if (resEl) resEl.textContent = S.vidW + '×' + S.vidH;
   markUniformsDirty();
+
+  // Beragadás-érzékelés: ha LEFELÉ váltottunk volna, de a stream érdemben
+  // nagyobb maradt a kértnél, újranyitjuk a kamerát a kívánt felbontással.
+  if (Math.min(S.vidW, S.vidH) > px * 1.5) {
+    console.warn('Felbontásváltás beragadt (' + S.vidW + '×' + S.vidH + ' > ' + px + '), stream újranyitása');
+    initCam(st.deviceId || null);
+    return false;
+  }
   return ok;
 }
 
@@ -1024,6 +1034,10 @@ async function cycleCamera() {
 }
 
 async function initCam(preferredDeviceId = null){
+  // FONTOS: a korábbi render-loop leállítása. Enélkül minden kameraváltás /
+  // stream-újranyitás után EGGYEL TÖBB render-ciklus futna párhuzamosan,
+  // ami fokozatosan belassítja az élőképet.
+  if (S.raf) { cancelAnimationFrame(S.raf); S.raf = null; }
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
   markUniformsDirty();
   try{
