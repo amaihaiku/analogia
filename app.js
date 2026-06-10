@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v25 (ANALOG-MATCHED CAPTURE)
+   ANALOGIA — app.js v26 (PRE-ARM SHUTTER + 2-WAY VIGNETTE)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v25 betöltve');
+console.log('ANALOGIA app.js v26 betöltve');
 
 const PROF = {};
 
@@ -137,6 +137,12 @@ async function loadExternalFilters() {
     return;
   }
 
+  // A párhuzamos betöltés miatt a beérkezési sorrend véletlenszerű lenne –
+  // ezért előbb ide gyűjtünk, és a végén az index.json sorrendje szerint
+  // töltjük fel a PROF-ot. Így a filmlista sorrendje mindig kiszámítható,
+  // és az index.json átrendezésével szabadon kurálható.
+  const loaded = {};
+
   const promises = filters.map(f => {
     const isCube = (typeof f === 'object' && f.type === 'cube');
     const id = typeof f === 'string' ? f : f.id;
@@ -147,7 +153,7 @@ async function loadExternalFilters() {
         .then(text => {
           const lut = parseCube(text);
           if (lut.sz > 0) {
-            PROF[id] = {
+            loaded[id] = {
               name: f.name || id,
               sub: f.sub || "3D LUT",
               lut: lut,
@@ -162,7 +168,7 @@ async function loadExternalFilters() {
         script.src = `filters/${id}.js`;
         script.onload = () => {
           if (window.PD && window.PD[id]) {
-            PROF[id] = {
+            loaded[id] = {
               name: window.PD[id].name,
               sub: window.PD[id].sub,
               lut: bake(window.PD[id].fn),
@@ -177,6 +183,12 @@ async function loadExternalFilters() {
     }
   });
   await Promise.all(promises);
+
+  // Determinisztikus sorrend: az index.json sorrendjében
+  for (const f of filters) {
+    const id = typeof f === 'string' ? f : f.id;
+    if (loaded[id]) PROF[id] = loaded[id];
+  }
 }
 
 /* ── WebGL Engine ── */
@@ -256,8 +268,11 @@ void main(){
   float shadowFactor = 1.0 - u_shadows * 0.5;
   linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(shadowFactor)), shadowMask);
   
-  float highlightMask = smoothstep(0.5, 1.0, linLum);
-  float highlightFactor = 1.0 - u_highlights * 0.4;
+  // A linLum LINEÁRIS fénytérben van: a 0.25 itt kb. sRGB ~0.55-nek felel meg,
+  // így a csúszka a világos középtónusokat is eléri, nem csak a majdnem kiégett
+  // részeket (a korábbi 0.5-ös küszöb sRGB ~0.74 volt – ezért tűnt hatástalannak).
+  float highlightMask = smoothstep(0.25, 1.0, linLum);
+  float highlightFactor = 1.0 - u_highlights * 0.6;
   linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(highlightFactor)), highlightMask);
   
   vec3 srgbProcessed = pow(clamp(linear, 0.0, 1.0), vec3(1.0 / 2.2));
@@ -274,7 +289,17 @@ void main(){
   ${window.FX && window.FX.shader ? window.FX.shader.calculation : ''}
   vuv=vuv_saved;
   
-  if(u_vig>0.){vec2 d=(v_uv-.5)*2.;float vig=smoothstep(.3,2.0,dot(d,d));col*=1.-u_vig*vig*.88;}
+  if(abs(u_vig)>0.001){
+    vec2 d=(v_uv-.5)*2.;
+    float vig=smoothstep(.3,2.0,dot(d,d));
+    if(u_vig>0.){
+      col*=1.-u_vig*vig*.88;            // klasszikus sötétedő szél
+    } else {
+      // világosodó szél (fakult nyomat / fénybeszivárgás) – visszafogottabb
+      // maximummal, mert hamar "ködössé" válna
+      col=mix(col,vec3(1.),min(1.,-u_vig*vig*.5));
+    }
+  }
   
   if(uGrainIntensity>0.0){
     float lum=dot(col,vec3(0.2126,0.7152,0.0722));
@@ -453,7 +478,7 @@ const MODES={
   highlights: {min:-1,  max:1,   step:.02,hasCenter:true, fmt:v=>(v>0?'+':'')+Math.round(v*100)+'%'},
   tone:       {min:-1,  max:1,   step:.04,hasCenter:true, fmt:v=>(v>0?'+':'')+Math.round(v*100)+'%'},
   grain:      {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
-  vignette:   {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
+  vignette:   {min:-1,  max:1,   step:.04,hasCenter:true, fmt:v=>(v>0?'+':'')+Math.round(v*100)+'%'},
 };
 const TPX=14; 
 let ddrag=false,dlast=0,doff=0;
@@ -723,20 +748,20 @@ function toggleDust() {
 
 function triggerMechanicalShutter(callback) {
   const blink = document.getElementById('shutter-blink');
-  if(!blink) return callback();
+  if(!blink) { callback(); return; }
   blink.classList.remove('hidden', 'open');
   blink.getBoundingClientRect(); 
   blink.classList.add('active'); 
-  setTimeout(() => {
-    callback(); 
+  setTimeout(async () => {
+    // A redőny addig marad csukva, amíg az expo ténylegesen el nem készült –
+    // így vizuálisan is jelzi, hogy "még tart a felvétel", nem fix időzítőn nyit.
+    try { await callback(); } catch(_) {}
+    blink.classList.add('open');
+    blink.classList.remove('active');
     setTimeout(() => {
-      blink.classList.add('open');
-      blink.classList.remove('active');
-      setTimeout(() => {
-        blink.classList.add('hidden');
-        blink.classList.remove('open');
-      }, 160);
-    }, 60);
+      blink.classList.add('hidden');
+      blink.classList.remove('open');
+    }, 160);
   }, 120);
 }
 
@@ -843,8 +868,9 @@ async function capture(){
       if (fl) fl.textContent = 'DE 2/2';
       const sh = document.getElementById('shutter');
       if (sh) sh.classList.add('de-primed');
-      // Az első réteget is nagy felbontáson kapjuk le, különben a kompozitban lágy lenne
-      await setStreamResolution(CAPTURE_RES);
+      // Az első réteget is nagy felbontáson kapjuk le – az elő-élesítést bevárva
+      await (armPromise || setStreamResolution(CAPTURE_RES));
+      armPromise = null;
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, detex);
       if (vid) {
@@ -861,8 +887,10 @@ async function capture(){
     S.saving=true;
     S.frozen=true;
 
-    // Exponáláskor ideiglenesen nagy felbontásra váltunk – a redőny-animáció eltakarja
-    await setStreamResolution(CAPTURE_RES);
+    // Ha az elő-élesítés (pointerdown) már elindította a váltást, csak bevárjuk –
+    // tipikusan azonnal kész. Fallback: ha programból hívták, itt váltunk.
+    await (armPromise || setStreamResolution(CAPTURE_RES));
+    armPromise = null;
 
     if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
 
@@ -1134,7 +1162,27 @@ async function initCam(preferredDeviceId = null){
 }
 
 const permBtn = document.getElementById('perm-btn'); if(permBtn) permBtn.addEventListener('click',() => initCam());
-const shutterBtn = document.getElementById('shutter'); if(shutterBtn) shutterBtn.addEventListener('click',capture);
+
+/* ── Elő-élesítés ──
+   A felbontásváltást már a gomb LENYOMÁSAKOR elindítjuk, és a FELENGEDÉSKOR
+   exponálunk. Az ujj természetes lenyomva-tartása (~100-300ms) elfedi a váltás
+   idejét, így a mentett kép a felengedés pillanatát rögzíti, nem fél mp-cel későbbit. */
+let armPromise = null;
+const shutterBtn = document.getElementById('shutter');
+function armCapture(e) {
+  if (S.saving || !S.ready) return;
+  try { if (e && shutterBtn) shutterBtn.setPointerCapture(e.pointerId); } catch (_) {}
+  armPromise = setStreamResolution(CAPTURE_RES);
+}
+function disarmCapture() {
+  armPromise = null;
+  if (!S.saving) setStreamResolution(PREVIEW_RES, false);
+}
+if(shutterBtn) {
+  shutterBtn.addEventListener('pointerdown', armCapture, {passive:true});
+  shutterBtn.addEventListener('pointerup', capture);
+  shutterBtn.addEventListener('pointercancel', disarmCapture);
+}
 
 document.querySelectorAll('.mode-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
