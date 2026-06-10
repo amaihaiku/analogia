@@ -297,18 +297,19 @@ function updateCanvasDimensions() {
   if (!glCv || !glCv.parentElement) return;
   const p = glCv.parentElement;
   const dpr = window.devicePixelRatio || 1;
+  const heavyEffect = (window.FX && window.FX.active) || (S.grain > 0);
   
-  // Ellenőrizzük, hogy aktív-e valamilyen LUT vagy egyéb nehéz effekt
-  const heavyEffect = (window.FX && window.FX.active) || (S.grain > 0) || (S.simKey && PROF[S.simKey]);
-  const fxScale = (heavyEffect && !S.saving) ? 0.5 : 1.0;
-  
-  // JAVÍTVA (Biztonsági őv): Ha a p.clientWidth még 0 (mert a DOM épp inicializálódik),
-  // nem engedjük a méretet 0-ra esni, hanem adunk egy 320-as fallbacket. Így nincs u_cvs_sz 0-val való osztás a shaderben!
-  const baseW = p.clientWidth || 320;
-  const baseH = p.clientHeight || 320;
-  
-  cachedCanvasW = Math.max(4, Math.round(baseW * dpr * fxScale));
-  cachedCanvasH = Math.max(4, Math.round(baseH * dpr * fxScale));
+  if (S.saving && S.vidW && S.vidH) {
+    // Mentéskor: a videó stream legnagyobb valós, négyzetes méretét használjuk
+    const maxDim = Math.min(S.vidW, S.vidH);
+    cachedCanvasW = maxDim;
+    cachedCanvasH = maxDim;
+  } else {
+    // Élőkép: a kijelzőméretből számoljuk, így gyors és akkukímélő marad
+    const fxScale = heavyEffect ? 0.5 : 1.0;
+    cachedCanvasW = Math.round(p.clientWidth * dpr * fxScale);
+    cachedCanvasH = Math.round(p.clientHeight * dpr * fxScale);
+  }
   
   if(glCv.width !== cachedCanvasW || glCv.height !== cachedCanvasH){
     glCv.width = cachedCanvasW;
@@ -321,6 +322,7 @@ window.addEventListener('resize', updateCanvasDimensions);
 
 function initGL(){
   if (!glCv) return false;
+  // JAVÍTVA: preserveDrawingBuffer értékét visszaállítottuk true-ra, különben a readPixels üres buffert olvas ki exponáláskor
   gl=glCv.getContext('webgl',{alpha:false,antialias:false,powerPreference:'high-performance',preserveDrawingBuffer:true});
   if(!gl)return false;
   const vs=mkS(gl.VERTEX_SHADER,VS),fs=mkS(gl.FRAGMENT_SHADER,FS);
@@ -328,7 +330,7 @@ function initGL(){
   prog=gl.createProgram();
   gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
   if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){
-    console.error('Shader fordítási hiba:', gl.getShaderInfoLog(vs));
+    console.error('Shader fordítási hiba:', gl.getShaderInfoLog(s));
     return null;
   }
   gl.useProgram(prog);
@@ -347,6 +349,7 @@ function initGL(){
   ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
   vtex=mkT();ltex=mkT();detex=mkT();
   
+  // JAVÍTVA: A detex textúrának adunk egy alap 1x1 pixeles üres adatot, különben amíg nincs aktív dupla expozíció, az "invalid sampler" teljesen feketére rontja a shadert.
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, detex);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
@@ -398,6 +401,7 @@ function render(){
   gl.uniform1f(U.u_vig,S.vignette);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
 
+  // Grain: slider 0..1 → uGrainIntensity 0..0.2, uGrainSize 1.0..3.5
   gl.uniform1f(U.uGrainIntensity, S.grain * 0.2);
   gl.uniform1f(U.uGrainSize, 1.0 + S.grain * 2.5);
   gl.uniform1f(U.uTime, performance.now() / 1000.0);
@@ -444,6 +448,7 @@ function setV(v){
   const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
   const prevGrain=S.grain;
   if(S.mode==='exposure')S.exposure=v;else if(S.mode==='shadows')S.shadows=v;else if(S.mode==='highlights')S.highlights=v;else if(S.mode==='tone')S.tone=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
+  // Ha a grain 0-ról indult el vagy 0-ra tért vissza, frissítjük a canvas felbontást
   if(S.mode==='grain' && ((prevGrain===0)!==(S.grain===0))) updateCanvasDimensions();
   markUniformsDirty();
   return v;
@@ -583,9 +588,6 @@ function buildFilmList(){
     it.onclick=()=>{
       S.simKey=k;uploadLUT(p.lut);
       markUniformsDirty();
-      
-      updateCanvasDimensions();
-      
       const lbl = document.getElementById('film-label');
       if (lbl) lbl.textContent=p.name;
       closeModal();
@@ -697,6 +699,7 @@ function toggleDust() {
     if (window.FX.active) {
       window.FX.randomize();
     }
+    // FX be/ki: canvas felbontás frissítése (aktív=fél DPR, inaktív=teljes DPR)
     updateCanvasDimensions();
     markUniformsDirty();
   }
@@ -779,6 +782,7 @@ async function capture(){
 
   triggerMechanicalShutter(async () => {
     S.saving=true;
+    // Mentés előtt teljes felbontás (S.saving=true → updateCanvasDimensions teljes DPR-t ad)
     updateCanvasDimensions();
 
     if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
@@ -795,7 +799,7 @@ async function capture(){
       }
     }
     
-    const OUT=1080;
+    const OUT=cachedCanvasW;
     const frame = getSelectedFrame();
     let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
@@ -823,6 +827,7 @@ async function capture(){
       gl.uniform1f(U.u_vig,S.vignette);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
       
+      // Grain capture-kor: ugyanaz a logika mint renderben
       gl.uniform1f(U.uGrainIntensity, S.grain * 0.2);
       gl.uniform1f(U.uGrainSize, 1.0 + S.grain * 2.5);
       gl.uniform1f(U.uTime, performance.now() / 1000.0);
@@ -894,10 +899,13 @@ async function capture(){
       const fs=Math.max(14,photoS*.036|0);
       const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
       sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
-      let tx = photoX + photoS - fs * 0.5;
-      let ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
+      let tx, ty;
       if (frame === 'film') {
+        tx = photoX + photoS - fs * 0.5;
         ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
+      } else {
+        tx = photoX + photoS - fs * 0.35;
+        ty = photoY + photoS - fs * 0.15;
       }
       sCtx.fillStyle='rgba(0,0,0,0.6)';
       sCtx.fillText(ds,tx+2,ty+2);
@@ -937,6 +945,7 @@ async function capture(){
         const fl = document.getElementById('hud-focus-label'); if(fl) fl.textContent = 'AF';
       }
       S.saving=false;
+      // Mentés után visszaváltás: ha FX aktív, fél DPR-re vissza
       updateCanvasDimensions();
     },'image/jpeg',.92);
   });
@@ -979,7 +988,7 @@ async function initCam(preferredDeviceId = null){
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
   markUniformsDirty();
   try{
-    const constraints = { audio:false, video:{ width:{ideal:720}, height:{ideal:720} } };
+    const constraints = { audio:false, video:{ width:{ideal:3840}, height:{ideal:3840} } };
     if (preferredDeviceId) constraints.video.deviceId = { exact: preferredDeviceId };
     else constraints.video.facingMode = { ideal: 'environment' };
 
@@ -1161,9 +1170,6 @@ window.addEventListener('appinstalled', () => {
     uploadLUT(PROF[S.simKey].lut);
     const fl = document.getElementById('film-label'); if(fl) fl.textContent = PROF[S.simKey].name;
   }
-  
-  updateCanvasDimensions();
-  
   syncDial();
   syncDateToggleAvailability();
   updateLiveFramePreview();
