@@ -21,6 +21,12 @@ let videoDevices = [];
 let currentDeviceIndex = 0;
 let deferredPrompt = null;
 
+// Az élőkép ALACSONY felbontáson fut, hogy ne késsen (a nagy videó textúra-
+// feltöltése képkockánként drága). Exponáláskor a stream ideiglenesen
+// CAPTURE_RES-re vált, lekapjuk a frame-et, majd visszaváltunk.
+const PREVIEW_RES = 720;
+const CAPTURE_RES = 2560;
+
 let activeBlobUrl = null;
 let activeFilename = "";
 let flashEnabled = false;
@@ -755,27 +761,56 @@ function trackSupportsTorch(track) {
   } catch (_) { return false; }
 }
 
+// A futó stream felbontásának átállítása újranyitás nélkül.
+// Exponáláskor felváltunk CAPTURE_RES-re, mentés után vissza PREVIEW_RES-re.
+// Ha az eszköz nem támogatja a váltást, csendben a jelenlegi felbontáson marad.
+async function setStreamResolution(px, waitFrames = true) {
+  if (!S.stream) return false;
+  const tk = S.stream.getVideoTracks()[0];
+  if (!tk) return false;
+  let ok = true;
+  try {
+    await tk.applyConstraints({ width: { ideal: px }, height: { ideal: px } });
+    if (waitFrames) await waitForVideoFrames(3, 250);
+  } catch (_) { ok = false; }
+  try {
+    const st = tk.getSettings();
+    S.vidW = st.width || vid.videoWidth || S.vidW;
+    S.vidH = st.height || vid.videoHeight || S.vidH;
+    const resEl = document.getElementById('hud-res');
+    if (resEl) resEl.textContent = S.vidW + '×' + S.vidH;
+  } catch (_) {}
+  markUniformsDirty();
+  return ok;
+}
+
 async function capture(){
   if(S.saving||!S.ready)return;
   
   if(S.deActive && S.deStage === 0) {
-    triggerMechanicalShutter(() => {
+    triggerMechanicalShutter(async () => {
       S.deStage = 1;
       const fl = document.getElementById('hud-focus-label');
       if (fl) fl.textContent = 'DE 2/2';
       const sh = document.getElementById('shutter');
       if (sh) sh.classList.add('de-primed');
+      // Az első réteget is nagy felbontáson kapjuk le, különben a kompozitban lágy lenne
+      await setStreamResolution(CAPTURE_RES);
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, detex);
       if (vid) {
         try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid); } catch(e){}
       }
+      setStreamResolution(PREVIEW_RES, false); // vissza az élőképhez, nem várjuk meg
     });
     return; 
   }
 
   triggerMechanicalShutter(async () => {
     S.saving=true;
+
+    // Exponáláskor ideiglenesen nagy felbontásra váltunk – a redőny-animáció eltakarja
+    await setStreamResolution(CAPTURE_RES);
 
     if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
 
@@ -874,6 +909,8 @@ async function capture(){
 
     // Élőkép canvas visszaállítása az eredeti (alacsony) felbontásra
     updateCanvasDimensions();
+    // Stream vissza alacsony felbontásra – nem várjuk meg, az élőkép közben fut
+    setStreamResolution(PREVIEW_RES, false);
     
     if (torchTrack) {
       try { await torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
@@ -990,11 +1027,9 @@ async function initCam(preferredDeviceId = null){
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
   markUniformsDirty();
   try{
-    // FONTOS: a forrástól magas felbontást kérünk. Az élőkép NEM lesz lassabb tőle,
-    // mert a shader költségét a canvas felbontása adja (az marad fél/teljes DPR),
-    // a mentett kép viszont csak ennyi pixelből tud gazdálkodni (zoomnál pláne).
-    // Ha nagyon régi eszközön akadna a textúrafeltöltés, vedd vissza 1920-ra.
-    const constraints = { audio:false, video:{ width:{ideal:2560}, height:{ideal:2560} } };
+    // Élőképhez alacsony felbontás (nincs késés) – exponáláskor a
+    // setStreamResolution(CAPTURE_RES) ideiglenesen felváltja.
+    const constraints = { audio:false, video:{ width:{ideal:PREVIEW_RES}, height:{ideal:PREVIEW_RES} } };
     if (preferredDeviceId) constraints.video.deviceId = { exact: preferredDeviceId };
     else constraints.video.facingMode = { ideal: 'environment' };
 
