@@ -1,13 +1,14 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v24 (STABLE FOV + HI-RES CAPTURE)
+   ANALOGIA — app.js v25 (ANALOG-MATCHED CAPTURE)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v24 betöltve');
+console.log('ANALOGIA app.js v25 betöltve');
 
 const PROF = {};
 
 const S={
   stream:null,raf:null,ready:false,saving:false,
+  frozen:false, // élőkép befagyasztva (felbontásváltás kritikus szakasza alatt)
   simKey:'kodachrome',
   exposure:0,shadows:0,highlights:0,tone:0,grain:0,grainSize:2,vignette:0,
   zoom:1.0,
@@ -26,7 +27,12 @@ let deferredPrompt = null;
 // feltöltése képkockánként drága). Exponáláskor a stream ideiglenesen
 // CAPTURE_RES-re vált, lekapjuk a frame-et, majd visszaváltunk.
 const PREVIEW_RES = 720;
-const CAPTURE_RES = 2560;
+// Mentéskor kért stream-felbontás. Szándékosan mérsékelt: a túl nagy forrás
+// "digitálisan éles" képet ad, ami öli az analóg karaktert, és a váltás is lassabb.
+const CAPTURE_RES = 1600;
+// A mentett fájl mérete (négyzet). Köztes érték a 720-as előnézet és a forrás
+// között: zoomolásnál még használható, de megmarad az analóg lágyság.
+const SAVE_RES = 1280;
 
 let activeBlobUrl = null;
 let activeFilename = "";
@@ -392,9 +398,10 @@ function uploadLUT(ld){
 
 function render(){
   S.raf=requestAnimationFrame(render);
-  // Mentés / felbontásváltás közben nem rajzolunk: a preserveDrawingBuffer
-  // miatt az utolsó kocka marad a képernyőn, így nem "ugrál" a kép.
-  if(S.saving)return;
+  // Csak a felbontásváltás kritikus szakaszában nem rajzolunk (S.frozen) –
+  // a preserveDrawingBuffer miatt az utolsó kocka marad, így nem "ugrál" a kép.
+  // A mentés többi része (2D kompozit, toBlob) alatt az élőkép már fut tovább.
+  if(S.frozen)return;
   drawFrame();
 }
 
@@ -812,7 +819,8 @@ async function setStreamResolution(px, waitFrames = true) {
     // nem mentünk éppen, és a track tényleg beragadt nagy felbontáson.
     setTimeout(() => {
       if (myReq !== resReqId || !S.stream || S.saving) return;
-      if (tk.readyState !== 'live') return;
+      // Csak ha még mindig EZ az aktív track – kameraváltás közben nem nyúlunk bele
+      if (S.stream.getVideoTracks()[0] !== tk || tk.readyState !== 'live') return;
       const st = sync();
       if (Math.min(S.vidW, S.vidH) > px * 1.5) {
         console.warn('Felbontásváltás beragadt (' + S.vidW + '×' + S.vidH + ' > ' + px + '), stream újranyitása');
@@ -828,7 +836,8 @@ async function capture(){
   
   if(S.deActive && S.deStage === 0) {
     triggerMechanicalShutter(async () => {
-      S.saving = true; // élőkép befagyasztása a felbontásváltás idejére
+      S.saving = true;  // exponálás-zár (dupla lövés ellen)
+      S.frozen = true;  // élőkép befagyasztása a felbontásváltás idejére
       S.deStage = 1;
       const fl = document.getElementById('hud-focus-label');
       if (fl) fl.textContent = 'DE 2/2';
@@ -842,6 +851,7 @@ async function capture(){
         try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid); } catch(e){}
       }
       await setStreamResolution(PREVIEW_RES, false);
+      S.frozen = false;
       S.saving = false;
     });
     return; 
@@ -849,6 +859,7 @@ async function capture(){
 
   triggerMechanicalShutter(async () => {
     S.saving=true;
+    S.frozen=true;
 
     // Exponáláskor ideiglenesen nagy felbontásra váltunk – a redőny-animáció eltakarja
     await setStreamResolution(CAPTURE_RES);
@@ -867,10 +878,9 @@ async function capture(){
       }
     }
     
-    // Mentési felbontás: a kamera forrásához igazítva (min. 1080, max. 2048).
-    // Így ha a kamera pl. 2560×1440-et ad, a mentett kép 1440×1440 lesz, nem felskálázott 1080.
-    const srcShort = Math.min(S.vidW, S.vidH) || 1080;
-    const OUT = Math.max(1080, Math.min(2048, srcShort));
+    // Mentési felbontás: SAVE_RES, de soha nem több, mint amit a forrás tud
+    const srcShort = Math.min(S.vidW, S.vidH) || PREVIEW_RES;
+    const OUT = Math.max(PREVIEW_RES, Math.min(SAVE_RES, srcShort));
     const frame = getSelectedFrame();
     let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
@@ -883,7 +893,8 @@ async function capture(){
       photoS=OUT; photoX=0; photoY=0; cw=OUT; ch=OUT;
     }
 
-    const sv=document.getElementById('save-canvas'); if(!sv) return;
+    const sv=document.getElementById('save-canvas');
+    if(!sv){ S.saving=false; S.frozen=false; return; }
     sv.width=cw;sv.height=ch;
     const sCtx=sv.getContext('2d');
 
@@ -904,9 +915,13 @@ async function capture(){
       gl.uniform1f(U.u_vig,S.vignette);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
       
-      // Grain capture-kor: ugyanaz a logika mint renderben
+      // Grain capture-kor: a szemcse PIXELBEN számolódik, ezért nagyobb felbontáson
+      // ugyanaz a beállítás sokkal finomabb (alig látható) szemcsét adna, mint az
+      // előnézeten. A méretet az előnézeti canvashoz skálázzuk, így a mentett kép
+      // grainje UGYANÚGY néz ki, mint amit a felhasználó a keresőben látott.
+      const grainScale = OUT / Math.max(1, Math.min(cachedCanvasW, cachedCanvasH));
       gl.uniform1f(U.uGrainIntensity, S.grain * 0.2);
-      gl.uniform1f(U.uGrainSize, 1.0 + S.grain * 2.5);
+      gl.uniform1f(U.uGrainSize, (1.0 + S.grain * 2.5) * grainScale);
       gl.uniform1f(U.uTime, performance.now() / 1000.0);
       gl.uniform1f(U.uIsBW, (PROF[S.simKey] && PROF[S.simKey].isBW) ? 1.0 : 0.0);
       
@@ -950,9 +965,10 @@ async function capture(){
 
     // Élőkép canvas visszaállítása az eredeti (alacsony) felbontásra
     updateCanvasDimensions();
-    // Azonnal rajzolunk egy preview kockát, hogy ne maradjon üres a canvas,
-    // amíg a S.saving feloldására várunk
+    // Azonnal rajzolunk egy preview kockát, és feloldjuk a fagyasztást:
+    // a mentés hátralévő része (2D kompozit, toBlob) már nem blokkolja az élőképet
     drawFrame();
+    S.frozen = false;
     // Stream vissza alacsony felbontásra – nem várjuk meg, az élőkép közben fut
     setStreamResolution(PREVIEW_RES, false);
     
