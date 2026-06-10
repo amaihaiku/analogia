@@ -904,8 +904,8 @@ async function capture(){
         tx = photoX + photoS - fs * 0.5;
         ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
       } else {
-        tx = photoX + photoS - fs * 0.35;
-        ty = photoY + photoS - fs * 0.15;
+        tx = photoX + photoS - fs * 0.5;
+        ty = photoY + photoS - fs * 0.5;
       }
       sCtx.fillStyle='rgba(0,0,0,0.6)';
       sCtx.fillText(ds,tx+2,ty+2);
