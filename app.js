@@ -988,7 +988,7 @@ async function initCam(preferredDeviceId = null){
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
   markUniformsDirty();
   try{
-    const constraints = { audio:false, video:{ width:{ideal:3840}, height:{ideal:3840} } };
+    const constraints = { audio:false, video:{ width:{ideal:1920}, height:{ideal:1920} } };
     if (preferredDeviceId) constraints.video.deviceId = { exact: preferredDeviceId };
     else constraints.video.facingMode = { ideal: 'environment' };
 
