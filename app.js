@@ -296,20 +296,14 @@ function markUniformsDirty(){ /* no-op */ }
 function updateCanvasDimensions() {
   if (!glCv || !glCv.parentElement) return;
   const p = glCv.parentElement;
+  // Élőképen fél DPR-rel futunk ha FX vagy grain aktív: ~4x kevesebb pixel a shadernek.
+  // A mentés (capture) NEM ezen a méreten történik: ott a canvas ideiglenesen
+  // a kimeneti felbontásra vált egyetlen képkockára.
   const dpr = window.devicePixelRatio || 1;
   const heavyEffect = (window.FX && window.FX.active) || (S.grain > 0);
-  
-  if (S.saving && S.vidW && S.vidH) {
-    // Mentéskor: a videó stream legnagyobb valós, négyzetes méretét használjuk
-    const maxDim = Math.min(S.vidW, S.vidH);
-    cachedCanvasW = maxDim;
-    cachedCanvasH = maxDim;
-  } else {
-    // Élőkép: a kijelzőméretből számoljuk, így gyors és akkukímélő marad
-    const fxScale = heavyEffect ? 0.5 : 1.0;
-    cachedCanvasW = Math.round(p.clientWidth * dpr * fxScale);
-    cachedCanvasH = Math.round(p.clientHeight * dpr * fxScale);
-  }
+  const fxScale = heavyEffect ? 0.5 : 1.0;
+  cachedCanvasW = Math.round(p.clientWidth * dpr * fxScale);
+  cachedCanvasH = Math.round(p.clientHeight * dpr * fxScale);
   
   if(glCv.width !== cachedCanvasW || glCv.height !== cachedCanvasH){
     glCv.width = cachedCanvasW;
@@ -782,8 +776,6 @@ async function capture(){
 
   triggerMechanicalShutter(async () => {
     S.saving=true;
-    // Mentés előtt teljes felbontás (S.saving=true → updateCanvasDimensions teljes DPR-t ad)
-    updateCanvasDimensions();
 
     if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
 
@@ -799,7 +791,10 @@ async function capture(){
       }
     }
     
-    const OUT=cachedCanvasW;
+    // Mentési felbontás: a kamera forrásához igazítva (min. 1080, max. 2048).
+    // Így ha a kamera pl. 2560×1440-et ad, a mentett kép 1440×1440 lesz, nem felskálázott 1080.
+    const srcShort = Math.min(S.vidW, S.vidH) || 1080;
+    const OUT = Math.max(1080, Math.min(2048, srcShort));
     const frame = getSelectedFrame();
     let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
 
@@ -820,9 +815,15 @@ async function capture(){
     sCtx.fillRect(0,0,cw,ch);
 
     if(S.ready&&vid&&vid.readyState>=2){
+      // A canvast EGY képkockára a kimeneti felbontásra állítjuk. Az élőképet nem érinti
+      // (a shutter-animáció eltakarja), utána updateCanvasDimensions() visszaállítja.
+      glCv.width = OUT; glCv.height = OUT;
+      gl.viewport(0, 0, OUT, OUT);
+
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
       try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
-      gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
+      // u_cvs_sz = OUT×OUT → a cropUV pontos, torzításmentes négyzetes vágást ad
+      gl.uniform2f(U.u_cvs_sz,OUT,OUT);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
       gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
       gl.uniform1f(U.u_vig,S.vignette);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
@@ -862,24 +863,28 @@ async function capture(){
     if (!memoSrcCanvas) { memoSrcCanvas = document.createElement('canvas'); }
     
     memoTmpCanvas.width = photoS; memoTmpCanvas.height = photoS;
-    memoSrcCanvas.width = cachedCanvasW; memoSrcCanvas.height = cachedCanvasH;
+    memoSrcCanvas.width = OUT; memoSrcCanvas.height = OUT;
     
     const tc = memoTmpCanvas.getContext('2d');
     const srcCtx = memoSrcCanvas.getContext('2d');
     
-    const pixels=new Uint8Array(cachedCanvasW*cachedCanvasH*4);
-    gl.readPixels(0,0,cachedCanvasW,cachedCanvasH,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+    // Teljes felbontású kiolvasás a most renderelt OUT×OUT bufferből
+    const pixels=new Uint8Array(OUT*OUT*4);
+    gl.readPixels(0,0,OUT,OUT,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+
+    // Élőkép canvas visszaállítása az eredeti (alacsony) felbontásra
+    updateCanvasDimensions();
     
     if (torchTrack) {
       try { await torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
     }
 
-    srcCtx.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), cachedCanvasW, cachedCanvasH), 0, 0);
+    srcCtx.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), OUT, OUT), 0, 0);
 
     tc.save();
     tc.translate(0, photoS);
     tc.scale(1, -1);
-    tc.drawImage(memoSrcCanvas, 0, 0, cachedCanvasW, cachedCanvasH, 0, 0, photoS, photoS);
+    tc.drawImage(memoSrcCanvas, 0, 0, OUT, OUT, 0, 0, photoS, photoS);
     tc.restore();
 
     sCtx.drawImage(memoTmpCanvas,photoX,photoY,photoS,photoS);
@@ -899,13 +904,10 @@ async function capture(){
       const fs=Math.max(14,photoS*.036|0);
       const ds=`${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
       sCtx.font=`bold ${fs}px Courier New`;sCtx.textAlign='right';
-      let tx, ty;
+      let tx = photoX + photoS - fs * 0.5;
+      let ty = photoY + photoS - fs * 0.4;
       if (frame === 'film') {
-        tx = photoX + photoS - fs * 0.5;
         ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
-      } else {
-        tx = photoX + photoS - fs * 0.5;
-        ty = photoY + photoS - fs * 0.5;
       }
       sCtx.fillStyle='rgba(0,0,0,0.6)';
       sCtx.fillText(ds,tx+2,ty+2);
@@ -988,7 +990,11 @@ async function initCam(preferredDeviceId = null){
   if(S.stream) S.stream.getTracks().forEach(track => track.stop());
   markUniformsDirty();
   try{
-    const constraints = { audio:false, video:{ width:{ideal:1920}, height:{ideal:1920} } };
+    // FONTOS: a forrástól magas felbontást kérünk. Az élőkép NEM lesz lassabb tőle,
+    // mert a shader költségét a canvas felbontása adja (az marad fél/teljes DPR),
+    // a mentett kép viszont csak ennyi pixelből tud gazdálkodni (zoomnál pláne).
+    // Ha nagyon régi eszközön akadna a textúrafeltöltés, vedd vissza 1920-ra.
+    const constraints = { audio:false, video:{ width:{ideal:2560}, height:{ideal:2560} } };
     if (preferredDeviceId) constraints.video.deviceId = { exact: preferredDeviceId };
     else constraints.video.facingMode = { ideal: 'environment' };
 
