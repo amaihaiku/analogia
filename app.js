@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v23 (HI-RES CAPTURE + LOW-LAG PREVIEW)
+   ANALOGIA — app.js v24 (STABLE FOV + HI-RES CAPTURE)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v23 betöltve');
+console.log('ANALOGIA app.js v24 betöltve');
 
 const PROF = {};
 
@@ -31,6 +31,7 @@ const CAPTURE_RES = 2560;
 let activeBlobUrl = null;
 let activeFilename = "";
 let flashEnabled = false;
+let onVidMeta = null; // az aktuális loadedmetadata handler – gyors kameraváltásnál le kell szedni a régit
 
 // Teljesítmény-optimalizálás: Méretek gyorsítótárazása a Reflow elkerülésére
 let cachedCanvasW = 0;
@@ -391,6 +392,13 @@ function uploadLUT(ld){
 
 function render(){
   S.raf=requestAnimationFrame(render);
+  // Mentés / felbontásváltás közben nem rajzolunk: a preserveDrawingBuffer
+  // miatt az utolsó kocka marad a képernyőn, így nem "ugrál" a kép.
+  if(S.saving)return;
+  drawFrame();
+}
+
+function drawFrame(){
   if(!S.ready||!vid || vid.readyState<2)return;
 
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
@@ -763,33 +771,54 @@ function trackSupportsTorch(track) {
 }
 
 // A futó stream felbontásának átállítása újranyitás nélkül.
-// Exponáláskor felváltunk CAPTURE_RES-re, mentés után vissza PREVIEW_RES-re.
-// FONTOS: az "ideal" önmagában csak javaslat – lefelé váltásnál sok böngésző
-// figyelmen kívül hagyja és marad a nagy felbontáson. Ezért "max"-szal kényszerítjük.
-// Ha a track így is beragad nagy felbontáson, végső megoldásként újranyitjuk a streamet.
+// 1) A JELENLEGI képarányt megőrizzük (aspectRatio ideal), különben a cropUV
+//    látómezeje megugrik, amikor pl. 720×720-ról 2560×1440-re vált a kamera.
+// 2) Az "ideal" önmagában csak javaslat, ezért "max"-szal kényszerítjük a leváltást.
+// 3) A beragadás-ellenőrzés KÉSLELTETVE fut, mert az applyConstraints után a
+//    getSettings() egy ideig még a régi értéket mutathatja – az azonnali
+//    ellenőrzés fölösleges kamera-újranyitást (fekete villanást) okozna.
+let resReqId = 0;
 async function setStreamResolution(px, waitFrames = true) {
   if (!S.stream) return false;
   const tk = S.stream.getVideoTracks()[0];
   if (!tk) return false;
+  const myReq = ++resReqId;
+
+  let prevAR = 0;
+  try { const s0 = tk.getSettings(); if (s0.width && s0.height) prevAR = s0.width / s0.height; } catch (_) {}
+
   let ok = true;
   try {
-    await tk.applyConstraints({ width: { ideal: px, max: px }, height: { ideal: px, max: px } });
+    const c = { width: { ideal: px, max: px }, height: { ideal: px, max: px } };
+    if (prevAR) c.aspectRatio = { ideal: prevAR };
+    await tk.applyConstraints(c);
     if (waitFrames) await waitForVideoFrames(3, 250);
   } catch (_) { ok = false; }
-  let st = {};
-  try { st = tk.getSettings(); } catch (_) {}
-  S.vidW = st.width || vid.videoWidth || S.vidW;
-  S.vidH = st.height || vid.videoHeight || S.vidH;
-  const resEl = document.getElementById('hud-res');
-  if (resEl) resEl.textContent = S.vidW + '×' + S.vidH;
-  markUniformsDirty();
 
-  // Beragadás-érzékelés: ha LEFELÉ váltottunk volna, de a stream érdemben
-  // nagyobb maradt a kértnél, újranyitjuk a kamerát a kívánt felbontással.
-  if (Math.min(S.vidW, S.vidH) > px * 1.5) {
-    console.warn('Felbontásváltás beragadt (' + S.vidW + '×' + S.vidH + ' > ' + px + '), stream újranyitása');
-    initCam(st.deviceId || null);
-    return false;
+  const sync = () => {
+    let st = {};
+    try { st = tk.getSettings(); } catch (_) {}
+    S.vidW = st.width || vid.videoWidth || S.vidW;
+    S.vidH = st.height || vid.videoHeight || S.vidH;
+    const resEl = document.getElementById('hud-res');
+    if (resEl) resEl.textContent = S.vidW + '×' + S.vidH;
+    markUniformsDirty();
+    return st;
+  };
+  sync();
+
+  if (!waitFrames) {
+    // Késleltetett utó-ellenőrzés: csak ha azóta nem jött újabb kérés,
+    // nem mentünk éppen, és a track tényleg beragadt nagy felbontáson.
+    setTimeout(() => {
+      if (myReq !== resReqId || !S.stream || S.saving) return;
+      if (tk.readyState !== 'live') return;
+      const st = sync();
+      if (Math.min(S.vidW, S.vidH) > px * 1.5) {
+        console.warn('Felbontásváltás beragadt (' + S.vidW + '×' + S.vidH + ' > ' + px + '), stream újranyitása');
+        initCam(st.deviceId || null);
+      }
+    }, 700);
   }
   return ok;
 }
@@ -799,6 +828,7 @@ async function capture(){
   
   if(S.deActive && S.deStage === 0) {
     triggerMechanicalShutter(async () => {
+      S.saving = true; // élőkép befagyasztása a felbontásváltás idejére
       S.deStage = 1;
       const fl = document.getElementById('hud-focus-label');
       if (fl) fl.textContent = 'DE 2/2';
@@ -811,7 +841,8 @@ async function capture(){
       if (vid) {
         try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid); } catch(e){}
       }
-      setStreamResolution(PREVIEW_RES, false); // vissza az élőképhez, nem várjuk meg
+      await setStreamResolution(PREVIEW_RES, false);
+      S.saving = false;
     });
     return; 
   }
@@ -919,6 +950,9 @@ async function capture(){
 
     // Élőkép canvas visszaállítása az eredeti (alacsony) felbontásra
     updateCanvasDimensions();
+    // Azonnal rajzolunk egy preview kockát, hogy ne maradjon üres a canvas,
+    // amíg a S.saving feloldására várunk
+    drawFrame();
     // Stream vissza alacsony felbontásra – nem várjuk meg, az élőkép közben fut
     setStreamResolution(PREVIEW_RES, false);
     
@@ -1050,7 +1084,12 @@ async function initCam(preferredDeviceId = null){
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     S.stream=stream; if (vid) vid.srcObject=stream;
     if (vid) {
-      vid.addEventListener('loadedmetadata',()=>{
+      // Ha az előző initCam loadedmetadata listenere még nem sült el (gyors
+      // kameraváltás), itt eltávolítjuk – különben a régi closure elavult
+      // track-adatokkal írná felül a S.vidW/H-t és plusz render-loopot indítana.
+      if (onVidMeta) { vid.removeEventListener('loadedmetadata', onVidMeta); onVidMeta = null; }
+      onVidMeta = ()=>{
+        onVidMeta = null;
         S.ready=true;
         const tk=stream.getVideoTracks()[0],st=tk.getSettings();
         if(videoDevices.length === 0) {
@@ -1069,7 +1108,8 @@ async function initCam(preferredDeviceId = null){
         tk.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
         updateCanvasDimensions();
         render();
-      },{once:true});
+      };
+      vid.addEventListener('loadedmetadata', onVidMeta, {once:true});
     }
   }catch(e){
     const peEl = document.getElementById('perm-err');
