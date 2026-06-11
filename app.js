@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v27 (S23 FIX: NO ASPECT FORCE + FLEX LAYOUT)
+   ANALOGIA — app.js v28 (MIRRORED-GAMMA HIGHLIGHTS + SAVE INDICATOR)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v27 betöltve');
+console.log('ANALOGIA app.js v28 betöltve');
 
 const PROF = {};
 
@@ -268,12 +268,15 @@ void main(){
   float shadowFactor = 1.0 - u_shadows * 0.5;
   linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(shadowFactor)), shadowMask);
   
-  // A linLum LINEÁRIS fénytérben van: a 0.25 itt kb. sRGB ~0.55-nek felel meg,
-  // így a csúszka a világos középtónusokat is eléri, nem csak a majdnem kiégett
-  // részeket (a korábbi 0.5-ös küszöb sRGB ~0.74 volt – ezért tűnt hatástalannak).
-  float highlightMask = smoothstep(0.25, 1.0, linLum);
-  float highlightFactor = 1.0 - u_highlights * 0.6;
-  linear = mix(linear, pow(clamp(linear, 0.0, 1.0), vec3(highlightFactor)), highlightMask);
+  // TÜKRÖZÖTT GAMMA: a sima pow a fehér közelében szinte hatástalan (ezért tűnt
+  // a HIGH csúszka halottnak). A fényeket az INVERTÁLT kép "árnyékaiként" kezeljük:
+  // ott a pow erős, visszafordítás után pedig pont a fehér közelében hat a legjobban,
+  // és pozitív irányban sem éghet ki, csak aszimptotikusan közelíti a fehéret.
+  float highlightMask = smoothstep(0.15, 0.9, linLum);
+  float hlFactor = 1.0 + u_highlights * 0.6; // + : fények kihúzása, − : tompítás/recovery
+  vec3 invc = 1.0 - clamp(linear, 0.0, 1.0);
+  vec3 hlAdj = 1.0 - pow(invc, vec3(hlFactor));
+  linear = mix(linear, hlAdj, highlightMask);
   
   vec3 srgbProcessed = pow(clamp(linear, 0.0, 1.0), vec3(1.0 / 2.2));
   vec3 col = applyLUT(srgbProcessed);
@@ -746,6 +749,13 @@ function toggleDust() {
   }
 }
 
+// Mentés-jelző: expo közben teljes képernyős overlay (spinner + MENTÉS felirat),
+// ami minden érintést elnyel, így mentés alatt nem lehet az appba belenyúlni.
+function setSavingIndicator(on){
+  const el = document.getElementById('saving-overlay');
+  if (el) el.classList.toggle('hidden', !on);
+}
+
 function triggerMechanicalShutter(callback) {
   const blink = document.getElementById('shutter-blink');
   if(!blink) { callback(); return; }
@@ -862,6 +872,7 @@ async function capture(){
     triggerMechanicalShutter(async () => {
       S.saving = true;  // exponálás-zár (dupla lövés ellen)
       S.frozen = true;  // élőkép befagyasztása a felbontásváltás idejére
+      setSavingIndicator(true);
       S.deStage = 1;
       const fl = document.getElementById('hud-focus-label');
       if (fl) fl.textContent = 'DE 2/2';
@@ -876,6 +887,7 @@ async function capture(){
         try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid); } catch(e){}
       }
       await setStreamResolution(PREVIEW_RES, false);
+      setSavingIndicator(false);
       S.frozen = false;
       S.saving = false;
     });
@@ -885,6 +897,7 @@ async function capture(){
   triggerMechanicalShutter(async () => {
     S.saving=true;
     S.frozen=true;
+    setSavingIndicator(true);
 
     // Ha az elő-élesítés (pointerdown) már elindította a váltást, csak bevárjuk –
     // tipikusan azonnal kész. Fallback: ha programból hívták, itt váltunk.
@@ -924,7 +937,7 @@ async function capture(){
     }
 
     const sv=document.getElementById('save-canvas');
-    if(!sv){ S.saving=false; S.frozen=false; return; }
+    if(!sv){ S.saving=false; S.frozen=false; setSavingIndicator(false); return; }
     sv.width=cw;sv.height=ch;
     const sCtx=sv.getContext('2d');
 
@@ -1061,6 +1074,7 @@ async function capture(){
       
       const previewImg = document.getElementById('photo-preview-img');
       const photoOverlay = document.getElementById('photo-overlay');
+      setSavingIndicator(false);
       if (previewImg && photoOverlay) {
         previewImg.src = url;
         previewImg.alt = fname;
