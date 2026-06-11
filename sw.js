@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════
-   ANALOGIA — Service Worker v21
+   ANALOGIA — Service Worker v27
    Stratégia:
    - app.js / style.css / index.html: NETWORK-FIRST (mindig a legújabb, ha van net),
      cache csak offline fallback. Így a frissítés azonnal érvényesül.
@@ -7,7 +7,7 @@
    - aktiváláskor a régi verziójú cache-ek törlődnek.
 ═══════════════════════════════════════ */
 
-const VERSION = 'v25';
+const VERSION = 'v27';
 const CACHE = 'analogia-' + VERSION;
 
 // Előre cache-elendő statikus elemek (a verziózott query nélkül is)

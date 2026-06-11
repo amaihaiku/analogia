@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v26 (PRE-ARM SHUTTER + 2-WAY VIGNETTE)
+   ANALOGIA — app.js v27 (S23 FIX: NO ASPECT FORCE + FLEX LAYOUT)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v26 betöltve');
+console.log('ANALOGIA app.js v27 betöltve');
 
 const PROF = {};
 
@@ -803,12 +803,14 @@ function trackSupportsTorch(track) {
 }
 
 // A futó stream felbontásának átállítása újranyitás nélkül.
-// 1) A JELENLEGI képarányt megőrizzük (aspectRatio ideal), különben a cropUV
-//    látómezeje megugrik, amikor pl. 720×720-ról 2560×1440-re vált a kamera.
-// 2) Az "ideal" önmagában csak javaslat, ezért "max"-szal kényszerítjük a leváltást.
+// 1) Az "ideal" önmagában csak javaslat, ezért "max"-szal kényszerítjük a leváltást.
+// 2) SZÁNDÉKOSAN NEM kényszerítünk képarányt: Samsung eszközökön az aspectRatio
+//    constraint a szenzorkép megvágásával (digitális zoommal!) teljesülhet, így
+//    a mentett kép "belenagyítottnak" tűnt az előnézethez képest. A cropUV
+//    cover-logikája bármilyen képarányú forrásból helyes középvágást ad,
+//    a látómező-ugrást pedig a befagyasztott előnézet (S.frozen) takarja.
 // 3) A beragadás-ellenőrzés KÉSLELTETVE fut, mert az applyConstraints után a
-//    getSettings() egy ideig még a régi értéket mutathatja – az azonnali
-//    ellenőrzés fölösleges kamera-újranyitást (fekete villanást) okozna.
+//    getSettings() egy ideig még a régi értéket mutathatja.
 let resReqId = 0;
 async function setStreamResolution(px, waitFrames = true) {
   if (!S.stream) return false;
@@ -816,22 +818,19 @@ async function setStreamResolution(px, waitFrames = true) {
   if (!tk) return false;
   const myReq = ++resReqId;
 
-  let prevAR = 0;
-  try { const s0 = tk.getSettings(); if (s0.width && s0.height) prevAR = s0.width / s0.height; } catch (_) {}
-
   let ok = true;
   try {
-    const c = { width: { ideal: px, max: px }, height: { ideal: px, max: px } };
-    if (prevAR) c.aspectRatio = { ideal: prevAR };
-    await tk.applyConstraints(c);
+    await tk.applyConstraints({ width: { ideal: px, max: px }, height: { ideal: px, max: px } });
     if (waitFrames) await waitForVideoFrames(3, 250);
   } catch (_) { ok = false; }
 
   const sync = () => {
     let st = {};
     try { st = tk.getSettings(); } catch (_) {}
-    S.vidW = st.width || vid.videoWidth || S.vidW;
-    S.vidH = st.height || vid.videoHeight || S.vidH;
+    // A videoWidth/Height a TÉNYLEGESEN dekódolt képkocka mérete – Samsungon a
+    // getSettings() néha a kért (nem a valós) értéket jelenti, ezért az élvez elsőbbséget.
+    S.vidW = vid.videoWidth || st.width || S.vidW;
+    S.vidH = vid.videoHeight || st.height || S.vidH;
     const resEl = document.getElementById('hud-res');
     if (resEl) resEl.textContent = S.vidW + '×' + S.vidH;
     markUniformsDirty();
@@ -906,8 +905,11 @@ async function capture(){
       }
     }
     
-    // Mentési felbontás: SAVE_RES, de soha nem több, mint amit a forrás tud
-    const srcShort = Math.min(S.vidW, S.vidH) || PREVIEW_RES;
+    // Mentési felbontás és vágás a TÉNYLEGES képkocka-méretből (videoWidth/Height),
+    // nem a getSettings()-ből – Samsungon az utóbbi megbízhatatlan
+    const frameW = (vid && vid.videoWidth) || S.vidW;
+    const frameH = (vid && vid.videoHeight) || S.vidH;
+    const srcShort = Math.min(frameW, frameH) || PREVIEW_RES;
     const OUT = Math.max(PREVIEW_RES, Math.min(SAVE_RES, srcShort));
     const frame = getSelectedFrame();
     let cw=OUT,ch=OUT,photoX=0,photoY=0,photoS=OUT;
@@ -937,8 +939,8 @@ async function capture(){
 
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
       try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
-      // u_cvs_sz = OUT×OUT → a cropUV pontos, torzításmentes négyzetes vágást ad
-      gl.uniform2f(U.u_cvs_sz,OUT,OUT);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
+      // u_cvs_sz = OUT×OUT → pontos négyzetes vágás; u_vid_sz = TÉNYLEGES frame-méret
+      gl.uniform2f(U.u_cvs_sz,OUT,OUT);gl.uniform2f(U.u_vid_sz,frameW,frameH);
       gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
       gl.uniform1f(U.u_vig,S.vignette);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
