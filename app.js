@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v29 (AE/AF LOCK)
+   ANALOGIA — app.js v30 (SNAPSHOT CAPTURE + FLEX LAYOUT)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v29 betöltve');
+console.log('ANALOGIA app.js v30 betöltve');
 
 const PROF = {};
 
@@ -331,7 +331,7 @@ void main(){
   gl_FragColor=vec4(col,1.);
 }`;
 
-let gl,prog,vtex,ltex,detex;
+let gl,prog,vtex,ltex,detex,snapTex;
 const U={};
 
 function markUniformsDirty(){ /* no-op */ }
@@ -356,6 +356,20 @@ function updateCanvasDimensions() {
   }
 }
 window.addEventListener('resize', updateCanvasDimensions);
+
+/* ── Valós látható magasság (--app-h) ──
+   Egyes Samsung böngészők a 100dvh-t hibásan számolják, amikor az alsó
+   rendszersáv (vissza/főmenü/appváltó) állandóan látszik – a layout túllóg,
+   és az expo gomb levágódik. A visualViewport API a TÉNYLEGESEN látható
+   magasságot adja, ezt írjuk CSS-változóba; a .shell ebből kapja a magasságát. */
+function syncViewportHeight(){
+  const h = Math.round((window.visualViewport && window.visualViewport.height) || window.innerHeight);
+  if (h > 0) document.documentElement.style.setProperty('--app-h', h + 'px');
+}
+syncViewportHeight();
+if (window.visualViewport) window.visualViewport.addEventListener('resize', syncViewportHeight);
+window.addEventListener('resize', syncViewportHeight);
+window.addEventListener('orientationchange', () => setTimeout(syncViewportHeight, 250));
 
 function initGL(){
   if (!glCv) return false;
@@ -384,7 +398,7 @@ function initGL(){
    'uGrainIntensity','uGrainSize','uTime','uIsBW',
    'u_fx_active', 'u_fx_intensity', 'u_fx_scale', 'u_fx_stretch', 'u_fx_angle', 'u_fx_overexposure', 'u_fx_hue', 'u_fx_position', 'u_fx_seed', 'u_fx_bw', 'u_fx_quality'
   ].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
-  vtex=mkT();ltex=mkT();detex=mkT();
+  vtex=mkT();ltex=mkT();detex=mkT();snapTex=mkT();
   
   // JAVÍTVA: A detex textúrának adunk egy alap 1x1 pixeles üres adatot, különben amíg nincs aktív dupla expozíció, az "invalid sampler" teljesen feketére rontja a shadert.
   gl.activeTexture(gl.TEXTURE2);
@@ -776,6 +790,10 @@ function toggleFlash() {
   flashEnabled = !flashEnabled;
   const btn = document.getElementById('torch-toggle-btn');
   if (btn) btn.classList.toggle('active', flashEnabled);
+  if (flashEnabled) {
+    const tk = S.stream && S.stream.getVideoTracks()[0];
+    if (!(tk && trackSupportsTorch(tk))) showToast('Ezen a kamerán nincs vaku');
+  }
 }
 
 function toggleDust() {
@@ -914,61 +932,52 @@ async function setStreamResolution(px, waitFrames = true) {
 
 async function capture(){
   if(S.saving||!S.ready)return;
-  
+  if(!(vid && vid.readyState>=2))return;
+
+  // Vaku-módban néhány kockát várunk, hogy a fény beérjen az expozícióba –
+  // ez fizikai szükségszerűség, az igazi vakus gépek is így működnek
+  if (torchArmed) await waitForVideoFrames(4, 300);
+
   if(S.deActive && S.deStage === 0) {
-    triggerMechanicalShutter(async () => {
-      S.saving = true;  // exponálás-zár (dupla lövés ellen)
-      S.frozen = true;  // élőkép befagyasztása a felbontásváltás idejére
-      setSavingIndicator(true);
+    // DE 1. réteg: PILLANATKÉP azonnal, a felengedés pillanatában
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, detex);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid); } catch(e){}
+    torchOff();
+    armPromise = null;
+    setStreamResolution(PREVIEW_RES, false);
+    triggerMechanicalShutter(() => {
       S.deStage = 1;
       const fl = document.getElementById('hud-focus-label');
       if (fl) fl.textContent = 'DE 2/2';
       const sh = document.getElementById('shutter');
       if (sh) sh.classList.add('de-primed');
-      // Az első réteget is nagy felbontáson kapjuk le – az elő-élesítést bevárva
-      await (armPromise || setStreamResolution(CAPTURE_RES));
-      armPromise = null;
-      gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D, detex);
-      if (vid) {
-        try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid); } catch(e){}
-      }
-      await setStreamResolution(PREVIEW_RES, false);
-      setSavingIndicator(false);
-      S.frozen = false;
-      S.saving = false;
     });
     return; 
   }
 
+  // PILLANATKÉP-ELV: a felengedés pillanatában az aktuális videókockát azonnal
+  // textúrába égetjük. Minden lassú lépés (render, keret, JPEG) már EBBŐL dolgozik,
+  // nem az élő videóból – hiába mozdul utána a telefon, a mentett kép ez a
+  // pillanat marad. A felbontás az, amin a stream épp áll: nyomva tartásnál az
+  // elő-élesített 1600, villámgyors koppintásnál a 720-as preview-kocka.
+  const snapW = vid.videoWidth || S.vidW;
+  const snapH = vid.videoHeight || S.vidH;
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, snapTex);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid); } catch(e){}
+  torchOff();
+
   triggerMechanicalShutter(async () => {
     S.saving=true;
-    S.frozen=true;
     setSavingIndicator(true);
-
-    // Ha az elő-élesítés (pointerdown) már elindította a váltást, csak bevárjuk –
-    // tipikusan azonnal kész. Fallback: ha programból hívták, itt váltunk.
-    await (armPromise || setStreamResolution(CAPTURE_RES));
     armPromise = null;
 
     if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
-
-    let torchTrack = null;
-    if (flashEnabled && S.mode === 'exposure' && S.stream) {
-      const track = S.stream.getVideoTracks()[0];
-      if (track && trackSupportsTorch(track)) {
-        try {
-          await track.applyConstraints({ advanced: [{ torch: true }] });
-          torchTrack = track;
-          await waitForVideoFrames(8, 450);
-        } catch (_) { torchTrack = null; }
-      }
-    }
     
-    // Mentési felbontás és vágás a TÉNYLEGES képkocka-méretből (videoWidth/Height),
-    // nem a getSettings()-ből – Samsungon az utóbbi megbízhatatlan
-    const frameW = (vid && vid.videoWidth) || S.vidW;
-    const frameH = (vid && vid.videoHeight) || S.vidH;
+    // Mentési felbontás és vágás a pillanatkép méreteiből
+    const frameW = snapW;
+    const frameH = snapH;
     const srcShort = Math.min(frameW, frameH) || PREVIEW_RES;
     const OUT = Math.max(PREVIEW_RES, Math.min(SAVE_RES, srcShort));
     const frame = getSelectedFrame();
@@ -984,7 +993,7 @@ async function capture(){
     }
 
     const sv=document.getElementById('save-canvas');
-    if(!sv){ S.saving=false; S.frozen=false; setSavingIndicator(false); return; }
+    if(!sv){ S.saving=false; setSavingIndicator(false); return; }
     sv.width=cw;sv.height=ch;
     const sCtx=sv.getContext('2d');
 
@@ -997,8 +1006,9 @@ async function capture(){
       glCv.width = OUT; glCv.height = OUT;
       gl.viewport(0, 0, OUT, OUT);
 
-      gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,vtex);
-      try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){}
+      // A felengedéskor elmentett PILLANATKÉP-textúrából renderelünk,
+      // nem az élő videóból – a telefon közben nyugodtan mozoghat
+      gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,snapTex);
       // u_cvs_sz = OUT×OUT → pontos négyzetes vágás; u_vid_sz = TÉNYLEGES frame-méret
       gl.uniform2f(U.u_cvs_sz,OUT,OUT);gl.uniform2f(U.u_vid_sz,frameW,frameH);
       gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
@@ -1055,16 +1065,9 @@ async function capture(){
 
     // Élőkép canvas visszaállítása az eredeti (alacsony) felbontásra
     updateCanvasDimensions();
-    // Azonnal rajzolunk egy preview kockát, és feloldjuk a fagyasztást:
-    // a mentés hátralévő része (2D kompozit, toBlob) már nem blokkolja az élőképet
-    drawFrame();
-    S.frozen = false;
-    // Stream vissza alacsony felbontásra – nem várjuk meg, az élőkép közben fut
+    // Stream vissza alacsony felbontásra, ha az elő-élesítés felvitte –
+    // az élőkép közben végig futott, nincs fagyás
     setStreamResolution(PREVIEW_RES, false);
-    
-    if (torchTrack) {
-      try { await torchTrack.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
-    }
 
     srcCtx.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), OUT, OUT), 0, 0);
 
@@ -1236,14 +1239,34 @@ const permBtn = document.getElementById('perm-btn'); if(permBtn) permBtn.addEven
    exponálunk. Az ujj természetes lenyomva-tartása (~100-300ms) elfedi a váltás
    idejét, így a mentett kép a felengedés pillanatát rögzíti, nem fél mp-cel későbbit. */
 let armPromise = null;
+let torchArmed = false;
 const shutterBtn = document.getElementById('shutter');
+
+function torchOff(){
+  if (!torchArmed) return;
+  torchArmed = false;
+  const tk = S.stream && S.stream.getVideoTracks()[0];
+  if (tk) tk.applyConstraints({ advanced: [{ torch: false }] }).catch(()=>{});
+}
+
 function armCapture(e) {
   if (S.saving || !S.ready) return;
   try { if (e && shutterBtn) shutterBtn.setPointerCapture(e.pointerId); } catch (_) {}
   armPromise = setStreamResolution(CAPTURE_RES);
+  // Vaku: már LENYOMÁSKOR felgyújtjuk, hogy a felengedéskor lekapott pillanatkép
+  // megvilágított legyen. (Korábbi bug: csak EV tárcsamódban működött, mert
+  // S.mode === 'exposure' feltétel volt rajta – ez a kötés megszűnt.)
+  if (flashEnabled && S.stream) {
+    const tk = S.stream.getVideoTracks()[0];
+    if (tk && trackSupportsTorch(tk)) {
+      torchArmed = true;
+      tk.applyConstraints({ advanced: [{ torch: true }] }).catch(()=>{ torchArmed = false; });
+    }
+  }
 }
 function disarmCapture() {
   armPromise = null;
+  torchOff();
   if (!S.saving) setStreamResolution(PREVIEW_RES, false);
 }
 if(shutterBtn) {

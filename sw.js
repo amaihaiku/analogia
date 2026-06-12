@@ -7,7 +7,7 @@
    - aktiváláskor a régi verziójú cache-ek törlődnek.
 ═══════════════════════════════════════ */
 
-const VERSION = 'v29';
+const VERSION = 'v30';
 const CACHE = 'analogia-' + VERSION;
 
 // Előre cache-elendő statikus elemek (a verziózott query nélkül is)
