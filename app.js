@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v30 (SNAPSHOT CAPTURE + FLEX LAYOUT)
+   ANALOGIA — app.js v31 (FLASH FIX + SW AE LOCK + SMOOTH SAVE)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v30 betöltve');
+console.log('ANALOGIA app.js v31 betöltve');
 
 const PROF = {};
 
@@ -10,6 +10,7 @@ const S={
   stream:null,raf:null,ready:false,saving:false,
   frozen:false, // élőkép befagyasztva (felbontásváltás kritikus szakasza alatt)
   focusLock:null, // {x,y} videó-koordinátában: ide zárt AE/AF, amíg máshová nem koppintanak
+  aeBias:0, // szoftveres fénymérés-zár: digitális EV-korrekció a koppintott pontra
   simKey:'kodachrome',
   exposure:0,shadows:0,highlights:0,tone:0,grain:0,grainSize:2,vignette:0,
   zoom:1.0,
@@ -456,7 +457,7 @@ function drawFrame(){
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
 
   gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
-  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
+  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure+(S.aeBias||0)));
   gl.uniform1f(U.u_vig,S.vignette);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
 
@@ -599,6 +600,33 @@ if (vfOverlay) {
    Koppintás: a fókusz ÉS a fénymérés arra a pontra zár, és OTT MARAD, amíg
    máshová nem koppintasz. Dupla koppintás: vissza teljes automatikára. */
 
+// Szoftveres fénymérés a koppintott pontra: a terület átlagos fényességét
+// kimérjük a videókockából, és akkora digitális EV-korrekciót számolunk,
+// ami középtónusra húzza. Ez MINDEN eszközön működik (a mentett képre is hat) –
+// ott is, ahol a kamera hardveresen nem tud pont-alapú fénymérést.
+let aeSampleCv = null;
+function sampleAeBias(px, py){
+  try {
+    if (!vid || !vid.videoWidth) return 0;
+    if (!aeSampleCv) aeSampleCv = document.createElement('canvas');
+    const c = aeSampleCv; c.width = 32; c.height = 32;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    const fw = vid.videoWidth, fh = vid.videoHeight;
+    const rw = Math.max(16, Math.round(fw * 0.12));
+    const rh = Math.max(16, Math.round(fh * 0.12));
+    const sx = Math.min(Math.max(0, Math.round(px * fw - rw / 2)), fw - rw);
+    const sy = Math.min(Math.max(0, Math.round(py * fh - rh / 2)), fh - rh);
+    ctx.drawImage(vid, sx, sy, rw, rh, 0, 0, 32, 32);
+    const d = ctx.getImageData(0, 0, 32, 32).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+    const avg = (sum / (d.length / 4)) / 255;
+    if (avg <= 0.004) return 1.5;
+    const bias = Math.log2(0.45 / avg) * 0.8; // 0.45 ≈ középtónus; 0.8: ne legyen túl agresszív
+    return Math.max(-1.5, Math.min(1.5, bias));
+  } catch (_) { return 0; }
+}
+
 function updateFocusLabel(txt){
   const fl = document.getElementById('hud-focus-label');
   if (fl) fl.textContent = txt || (S.focusLock ? 'AF-L' : 'AF');
@@ -619,6 +647,8 @@ function applyFocusLock(tk){
 
 function clearFocusLock(){
   S.focusLock = null;
+  S.aeBias = 0;
+  markUniformsDirty();
   const tk = S.stream && S.stream.getVideoTracks()[0];
   if (tk) {
     tk.applyConstraints({ advanced: [
@@ -675,7 +705,19 @@ async function triggerVfFocus(e) {
   videoY = Math.max(0, Math.min(1, videoY));
 
   S.focusLock = { x: videoX, y: videoY };
-  updateFocusLabel('AF-L');
+
+  // Szoftveres fénymérés-zár: minden eszközön ad látható, zárolt hatást
+  S.aeBias = sampleAeBias(videoX, videoY);
+  markUniformsDirty();
+
+  // Címke a hardveres képesség szerint: ha a kamera tud pont-fókuszt is → AF-L,
+  // ha csak a (szoftveres) fénymérés zárható → AE-L
+  let hwFocus = false;
+  try {
+    const caps = tk.getCapabilities ? tk.getCapabilities() : {};
+    hwFocus = !!caps.pointsOfInterest || (Array.isArray(caps.focusMode) && caps.focusMode.length > 0);
+  } catch (_) {}
+  updateFocusLabel(hwFocus ? 'AF-L' : 'AE-L');
   await applyFocusLock(tk);
 }
 
@@ -933,10 +975,13 @@ async function setStreamResolution(px, waitFrames = true) {
 async function capture(){
   if(S.saving||!S.ready)return;
   if(!(vid && vid.readyState>=2))return;
+  S.saving = true;
+  setSavingIndicator(true);
 
-  // Vaku-módban néhány kockát várunk, hogy a fény beérjen az expozícióba –
-  // ez fizikai szükségszerűség, az igazi vakus gépek is így működnek
-  if (torchArmed) await waitForVideoFrames(4, 300);
+  // Vaku-módban BEVÁRJUK az élesítést (a torch-parancs csak utána garantáltan
+  // érvényes), majd néhány kockát, hogy a fény beérjen az expozícióba
+  if (flashEnabled) { try { await armPromise; } catch (_) {} }
+  if (torchArmed) await waitForVideoFrames(5, 400);
 
   if(S.deActive && S.deStage === 0) {
     // DE 1. réteg: PILLANATKÉP azonnal, a felengedés pillanatában
@@ -952,6 +997,8 @@ async function capture(){
       if (fl) fl.textContent = 'DE 2/2';
       const sh = document.getElementById('shutter');
       if (sh) sh.classList.add('de-primed');
+      setSavingIndicator(false);
+      S.saving = false;
     });
     return; 
   }
@@ -969,9 +1016,13 @@ async function capture(){
   torchOff();
 
   triggerMechanicalShutter(async () => {
-    S.saving=true;
-    setSavingIndicator(true);
     armPromise = null;
+
+    // FRAME-YIELD: két képkockányi lehetőséget adunk a böngészőnek, hogy a
+    // MENTÉS jelzőt kirajzolja, MIELŐTT a szinkron nehéz rész (GL render,
+    // readPixels, kompozit) blokkolná a szálat – enélkül a spinner sosem
+    // jelent meg, mert a kirajzolásig el sem jutott a böngésző.
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     if (window.FX && window.FX.active) { window.FX.seed = Math.random(); }
     
@@ -1011,7 +1062,7 @@ async function capture(){
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,snapTex);
       // u_cvs_sz = OUT×OUT → pontos négyzetes vágás; u_vid_sz = TÉNYLEGES frame-méret
       gl.uniform2f(U.u_cvs_sz,OUT,OUT);gl.uniform2f(U.u_vid_sz,frameW,frameH);
-      gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
+      gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure+(S.aeBias||0)));
       gl.uniform1f(U.u_vig,S.vignette);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
       
@@ -1068,6 +1119,9 @@ async function capture(){
     // Stream vissza alacsony felbontásra, ha az elő-élesítés felvitte –
     // az élőkép közben végig futott, nincs fagyás
     setStreamResolution(PREVIEW_RES, false);
+
+    // Újabb lélegzetvétel a böngészőnek a 2D kompozit előtt
+    await new Promise(r => requestAnimationFrame(r));
 
     srcCtx.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), OUT, OUT), 0, 0);
 
@@ -1252,17 +1306,21 @@ function torchOff(){
 function armCapture(e) {
   if (S.saving || !S.ready) return;
   try { if (e && shutterBtn) shutterBtn.setPointerCapture(e.pointerId); } catch (_) {}
-  armPromise = setStreamResolution(CAPTURE_RES);
-  // Vaku: már LENYOMÁSKOR felgyújtjuk, hogy a felengedéskor lekapott pillanatkép
-  // megvilágított legyen. (Korábbi bug: csak EV tárcsamódban működött, mert
-  // S.mode === 'exposure' feltétel volt rajta – ez a kötés megszűnt.)
-  if (flashEnabled && S.stream) {
-    const tk = S.stream.getVideoTracks()[0];
-    if (tk && trackSupportsTorch(tk)) {
-      torchArmed = true;
-      tk.applyConstraints({ advanced: [{ torch: true }] }).catch(()=>{ torchArmed = false; });
+  // SORBA fűzve: előbb a felbontásváltás fejeződjön be, UTÁNA a vaku.
+  // (Korábbi bug: a két applyConstraints párhuzamosan futott és felülírta
+  // egymást – ezért nem működött a vaku.)
+  armPromise = (async () => {
+    await setStreamResolution(CAPTURE_RES);
+    if (flashEnabled && S.stream) {
+      const tk = S.stream.getVideoTracks()[0];
+      if (tk && trackSupportsTorch(tk)) {
+        try {
+          await tk.applyConstraints({ advanced: [{ torch: true }] });
+          torchArmed = true;
+        } catch (_) { torchArmed = false; }
+      }
     }
-  }
+  })();
 }
 function disarmCapture() {
   armPromise = null;
