@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v33 (IN-APP DIAG TOGGLE)
+   ANALOGIA — app.js v34 (PER-KEY FOCUS LOCK)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v33 betöltve');
+console.log('ANALOGIA app.js v34 betöltve');
 
 const PROF = {};
 
@@ -11,6 +11,7 @@ const S={
   frozen:false, // élőkép befagyasztva (felbontásváltás kritikus szakasza alatt)
   focusLock:null, // {x,y} videó-koordinátában: ide zárt AE/AF, amíg máshová nem koppintanak
   aeBias:0, // szoftveres fénymérés-zár: digitális EV-korrekció a koppintott pontra
+  lockedFocusDistance:null, // betonozott manuális fókusztávolság (zár alatt)
   simKey:'kodachrome',
   exposure:0,shadows:0,highlights:0,tone:0,grain:0,grainSize:2,vignette:0,
   zoom:1.0,
@@ -664,29 +665,84 @@ function updateFocusLabel(txt){
   if (fl) fl.textContent = txt || (S.focusLock ? 'AF-L' : 'AF');
 }
 
-function applyFocusLock(tk){
-  if (!S.focusLock || !tk) return;
+async function applyFocusLock(tk){
+  if (!S.focusLock || !tk) return { focus:false, exposure:false };
+  let caps = {};
+  try { caps = tk.getCapabilities ? tk.getCapabilities() : {}; } catch(_) {}
+  const out = { focus:false, exposure:false };
   const poi = [{ x: S.focusLock.x, y: S.focusLock.y }];
-  // Több advanced-szettet adunk meg: a böngésző azokat alkalmazza, amiket az
-  // eszköz tud. A single-shot "odafókuszál és ott marad" – ez maga a zár;
-  // ahol nem támogatott, a continuous+POI legalább a pontra súlyozza a mérést.
-  return tk.applyConstraints({ advanced: [
-    { focusMode: 'single-shot', pointsOfInterest: poi },
-    { exposureMode: 'single-shot', pointsOfInterest: poi },
-    { pointsOfInterest: poi }
-  ]}).catch(()=>{});
+
+  // A KORÁBBI BUG: minden advanced-csomagban ott volt a pointsOfInterest is,
+  // és ha azt az eszköz nem tudja (mint a Redmi Note 13), a böngésző az EGÉSZ
+  // csomagot eldobta – a támogatott single-shot-tal együtt. Ezért mostantól
+  // kulcsonként, KÖTELEZŐ formában kérünk, csak azt, amit a caps szerint tud.
+
+  // 1) Pont kijelölése, ha támogatott (csak ekkor, külön kérésben)
+  if ('pointsOfInterest' in caps) {
+    try { await tk.applyConstraints({ advanced: [{ pointsOfInterest: poi }] }); } catch(_) {}
+  }
+
+  // 2) Fókusz zárása: single-shot = egyszer fókuszál, aztán TART
+  const fModes = Array.isArray(caps.focusMode) ? caps.focusMode : [];
+  if (fModes.includes('single-shot')) {
+    try {
+      await tk.applyConstraints({ focusMode: 'single-shot' });
+      out.focus = true;
+    } catch(e){ dlog('focusMode single-shot elutasítva: ' + (e && e.name)); }
+  }
+
+  // 2/b) Betonozás: ha van manual mód + focusDistance, a beállt távolságot
+  // rögzítjük – ez felbontásváltást is túlél, újra-fókuszsöprés nélkül
+  S.lockedFocusDistance = null;
+  if (out.focus && fModes.includes('manual') && caps.focusDistance) {
+    try {
+      await waitForVideoFrames(4, 350); // hagyjuk beállni az egyszeri fókuszt
+      const st0 = tk.getSettings();
+      if (typeof st0.focusDistance === 'number') {
+        await tk.applyConstraints({ focusMode: 'manual', focusDistance: st0.focusDistance });
+        S.lockedFocusDistance = st0.focusDistance;
+        dlog('Fókusz betonozva: manual @' + st0.focusDistance.toFixed(2));
+      }
+    } catch(e){ dlog('manual betonozás nem ment: ' + (e && e.name)); }
+  }
+
+  // 3) Expozíció hardveres zárása: single-shot, vagy manual a most beállt értékekkel
+  const eModes = Array.isArray(caps.exposureMode) ? caps.exposureMode : [];
+  if (eModes.includes('single-shot')) {
+    try { await tk.applyConstraints({ exposureMode: 'single-shot' }); out.exposure = true; } catch(_) {}
+  } else if (eModes.includes('manual')) {
+    try {
+      const st1 = tk.getSettings();
+      const c = { exposureMode: 'manual' };
+      if (caps.exposureTime && typeof st1.exposureTime === 'number') c.exposureTime = st1.exposureTime;
+      if (caps.iso && typeof st1.iso === 'number') c.iso = st1.iso;
+      await tk.applyConstraints(c);
+      out.exposure = true;
+      dlog('Expozíció zárolva: manual' + (c.exposureTime ? ' t=' + c.exposureTime : ''));
+    } catch(e){ dlog('exposure manual zár elutasítva: ' + (e && e.name)); }
+  }
+
+  // 4) Visszaellenőrzés a TÉNYLEGES beállításokból
+  try {
+    const st = tk.getSettings();
+    out.focus = out.focus && (st.focusMode === 'single-shot' || st.focusMode === 'manual');
+    out.exposure = out.exposure && (st.exposureMode === 'manual' || st.exposureMode === 'single-shot');
+    dlog('Zár ellenőrzés: focusMode=' + st.focusMode + ' exposureMode=' + st.exposureMode);
+  } catch(_) {}
+  return out;
 }
 
 function clearFocusLock(){
   S.focusLock = null;
+  S.lockedFocusDistance = null;
   S.aeBias = 0;
   markUniformsDirty();
   const tk = S.stream && S.stream.getVideoTracks()[0];
   if (tk) {
-    tk.applyConstraints({ advanced: [
-      { focusMode: 'continuous' },
-      { exposureMode: 'continuous' }
-    ]}).catch(()=>{});
+    (async () => {
+      try { await tk.applyConstraints({ focusMode: 'continuous' }); } catch(_) {}
+      try { await tk.applyConstraints({ exposureMode: 'continuous' }); } catch(_) {}
+    })();
   }
   const ring = document.getElementById('focus-ring');
   if (ring) ring.classList.add('hidden');
@@ -743,16 +799,15 @@ async function triggerVfFocus(e) {
   markUniformsDirty();
   dlog('TAP fókusz: videoXY=' + videoX.toFixed(2) + ',' + videoY.toFixed(2) + ' aeBias=' + S.aeBias.toFixed(2));
 
-  // Címke a hardveres képesség szerint, a szoftveres EV-eltolás értékével
-  let hwFocus = false;
+  // Diag: a kamera képességeinek naplózása
   try {
     const caps = tk.getCapabilities ? tk.getCapabilities() : {};
-    hwFocus = !!caps.pointsOfInterest || (Array.isArray(caps.focusMode) && caps.focusMode.length > 0);
     dlog('Kamera caps: focusMode=' + JSON.stringify(caps.focusMode) + ' exposureMode=' + JSON.stringify(caps.exposureMode) + ' poi=' + ('pointsOfInterest' in caps) + ' torch=' + caps.torch);
   } catch (_) {}
   const biasTxt = (S.aeBias >= 0 ? '+' : '') + S.aeBias.toFixed(1);
-  updateFocusLabel((hwFocus ? 'AF-L ' : 'AE-L ') + biasTxt);
-  await applyFocusLock(tk);
+  updateFocusLabel('AE-L ' + biasTxt); // előzetes; a hardveres zár után pontosítjuk
+  const lock = await applyFocusLock(tk);
+  updateFocusLabel((lock.focus ? (lock.exposure ? 'AE/AF-L ' : 'AF-L ') : 'AE-L ') + biasTxt);
   if (DIAG) {
     let st = {}; try { st = tk.getSettings(); } catch(_) {}
     dlog('Zár után settings: focusMode=' + st.focusMode + ' exposureMode=' + st.exposureMode + ' poi=' + JSON.stringify(st.pointsOfInterest));
@@ -992,9 +1047,16 @@ async function setStreamResolution(px, waitFrames = true) {
     return st;
   };
   sync();
-  // Felbontásváltáskor egyes eszközök újraindítják az AE/AF-et –
-  // ha aktív a koppintásos zár, visszakényszerítjük a pontra
-  if (S.focusLock) applyFocusLock(tk);
+  // Felbontásváltáskor egyes eszközök újraindítják az AE/AF-et – a zárat
+  // visszakényszerítjük. Betonozott (manual) fókusznál a tárolt távolságot
+  // állítjuk vissza, így nincs újabb fókusz-söprés.
+  if (S.focusLock) {
+    if (S.lockedFocusDistance != null) {
+      tk.applyConstraints({ focusMode: 'manual', focusDistance: S.lockedFocusDistance }).catch(()=>{});
+    } else {
+      applyFocusLock(tk);
+    }
+  }
 
   if (!waitFrames) {
     // Késleltetett utó-ellenőrzés: csak ha azóta nem jött újabb kérés,
