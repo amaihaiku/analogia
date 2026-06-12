@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v32 (TORCH VERIFY + DIAG)
+   ANALOGIA — app.js v33 (IN-APP DIAG TOGGLE)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v32 betöltve');
+console.log('ANALOGIA app.js v33 betöltve');
 
 const PROF = {};
 
@@ -52,27 +52,36 @@ const glCv = document.getElementById('gl-canvas');
 let memoTmpCanvas = null;
 let memoSrcCanvas = null;
 
-/* ── DIAGNOSZTIKA (?debug=1) ──
-   Az URL-hez fűzött ?debug=1 paraméterrel a képernyő alján élő log jelenik meg:
-   kamera-képességek, vaku-parancsok TÉNYLEGES eredménye (getSettings ellenőrzés),
-   fókusz-koppintások adatai és minden el nem kapott JS hiba. Mérés, nem kísérlet. */
-const DIAG = /[?&]debug=1/.test(location.search);
+/* ── DIAGNOSZTIKA ──
+   Bekapcsolás: ?debug=1 az URL-ben, VAGY 7 gyors koppintás az ANALOGIA feliratra
+   (telepített PWA-ban ez utóbbi az út, mert oda nem lehet URL-paramétert adni).
+   A napló a háttérben MINDIG gyűjt (~250 sor), így bekapcsoláskor a korábbi
+   események is megjelennek – nem kell újra előidézni a hibát. */
+let DIAG = /[?&]debug=1/.test(location.search);
 let diagEl = null;
-function dlog(msg){
-  if (!DIAG) return;
+const diagBuf = [];
+function renderDiag(){
   if (!diagEl) {
     diagEl = document.createElement('div');
     diagEl.style.cssText = 'position:fixed;left:4px;right:4px;bottom:4px;max-height:36vh;overflow:auto;z-index:99999;background:rgba(0,0,0,.88);color:#7CFC00;font:10px/1.5 monospace;padding:6px;border:1px solid #555;white-space:pre-wrap;pointer-events:none';
     document.body.appendChild(diagEl);
   }
-  diagEl.textContent += '[' + (performance.now()/1000).toFixed(1) + '] ' + msg + '\n';
+  diagEl.textContent = diagBuf.join('\n') + '\n';
   diagEl.scrollTop = diagEl.scrollHeight;
+}
+function dlog(msg){
+  diagBuf.push('[' + (performance.now()/1000).toFixed(1) + '] ' + msg);
+  if (diagBuf.length > 250) diagBuf.shift();
   try { console.log('[DIAG]', msg); } catch(_) {}
+  if (DIAG) renderDiag();
 }
-if (DIAG) {
-  window.addEventListener('error', e => dlog('JS HIBA: ' + e.message + ' @' + String(e.filename||'').split('/').pop() + ':' + e.lineno));
-  window.addEventListener('unhandledrejection', e => dlog('PROMISE HIBA: ' + ((e.reason && e.reason.message) || e.reason)));
+function toggleDiag(){
+  DIAG = !DIAG;
+  if (DIAG) { renderDiag(); showToast('Diagnosztika BE'); }
+  else if (diagEl) { diagEl.remove(); diagEl = null; showToast('Diagnosztika KI'); }
 }
+window.addEventListener('error', e => dlog('JS HIBA: ' + e.message + ' @' + String(e.filename||'').split('/').pop() + ':' + e.lineno));
+window.addEventListener('unhandledrejection', e => dlog('PROMISE HIBA: ' + ((e.reason && e.reason.message) || e.reason)));
 
 function showToast(msg) {
   let t = document.getElementById('anal-toast');
@@ -90,7 +99,8 @@ function showToast(msg) {
 
 function checkStandaloneGuard() {
   const urlParams = new URLSearchParams(window.location.search);
-  const isPwaParam = urlParams.get('mode') === 'standalone';
+  // A ?debug=1 is átmegy a kapun: diagnosztikához böngészőből is megnyitható
+  const isPwaParam = urlParams.get('mode') === 'standalone' || urlParams.get('debug') === '1';
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone || isPwaParam;
   const overlay = document.getElementById('install-overlay');
   const shell = document.querySelector('.shell');
@@ -1385,6 +1395,17 @@ if(shutterBtn) {
   shutterBtn.addEventListener('pointerup', capture);
   shutterBtn.addEventListener('pointercancel', disarmCapture);
 }
+
+// Rejtett diag-kapcsoló: 7 gyors koppintás az ANALOGIA feliratra
+// (telepített PWA-ban így érhető el a napló, URL-paraméter nélkül)
+const brandEl = document.querySelector('.brand');
+let diagTaps = 0, diagTapTimer = null;
+if (brandEl) brandEl.addEventListener('click', () => {
+  diagTaps++;
+  clearTimeout(diagTapTimer);
+  diagTapTimer = setTimeout(() => { diagTaps = 0; }, 1600);
+  if (diagTaps >= 7) { diagTaps = 0; toggleDiag(); }
+});
 
 document.querySelectorAll('.mode-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
