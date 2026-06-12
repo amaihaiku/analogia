@@ -1,14 +1,15 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v28 (MIRRORED-GAMMA HIGHLIGHTS + SAVE INDICATOR)
+   ANALOGIA — app.js v29 (AE/AF LOCK)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v28 betöltve');
+console.log('ANALOGIA app.js v29 betöltve');
 
 const PROF = {};
 
 const S={
   stream:null,raf:null,ready:false,saving:false,
   frozen:false, // élőkép befagyasztva (felbontásváltás kritikus szakasza alatt)
+  focusLock:null, // {x,y} videó-koordinátában: ide zárt AE/AF, amíg máshová nem koppintanak
   simKey:'kodachrome',
   exposure:0,shadows:0,highlights:0,tone:0,grain:0,grainSize:2,vignette:0,
   zoom:1.0,
@@ -580,17 +581,68 @@ if (vfOverlay) {
   vfOverlay.addEventListener('pointercancel', handleVfPointerUp);
 }
 
+/* ── AE/AF zár (natív kamera-viselkedés) ──
+   Koppintás: a fókusz ÉS a fénymérés arra a pontra zár, és OTT MARAD, amíg
+   máshová nem koppintasz. Dupla koppintás: vissza teljes automatikára. */
+
+function updateFocusLabel(txt){
+  const fl = document.getElementById('hud-focus-label');
+  if (fl) fl.textContent = txt || (S.focusLock ? 'AF-L' : 'AF');
+}
+
+function applyFocusLock(tk){
+  if (!S.focusLock || !tk) return;
+  const poi = [{ x: S.focusLock.x, y: S.focusLock.y }];
+  // Több advanced-szettet adunk meg: a böngésző azokat alkalmazza, amiket az
+  // eszköz tud. A single-shot "odafókuszál és ott marad" – ez maga a zár;
+  // ahol nem támogatott, a continuous+POI legalább a pontra súlyozza a mérést.
+  return tk.applyConstraints({ advanced: [
+    { focusMode: 'single-shot', pointsOfInterest: poi },
+    { exposureMode: 'single-shot', pointsOfInterest: poi },
+    { pointsOfInterest: poi }
+  ]}).catch(()=>{});
+}
+
+function clearFocusLock(){
+  S.focusLock = null;
+  const tk = S.stream && S.stream.getVideoTracks()[0];
+  if (tk) {
+    tk.applyConstraints({ advanced: [
+      { focusMode: 'continuous' },
+      { exposureMode: 'continuous' }
+    ]}).catch(()=>{});
+  }
+  const ring = document.getElementById('focus-ring');
+  if (ring) ring.classList.add('hidden');
+  updateFocusLabel();
+}
+
+let lastVfTap = { t: 0, x: 0, y: 0 };
+
 async function triggerVfFocus(e) {
   if (!vfOverlay) return;
   const r = vfOverlay.getBoundingClientRect();
   const rx = (e.clientX - r.left) / r.width;
   const ry = (e.clientY - r.top) / r.height;
+
+  // Dupla koppintás → zár feloldása, vissza automatikára
+  const now = performance.now();
+  const isDouble = (now - lastVfTap.t < 320) &&
+    Math.hypot(e.clientX - lastVfTap.x, e.clientY - lastVfTap.y) < 40;
+  lastVfTap = { t: now, x: e.clientX, y: e.clientY };
+  if (isDouble) {
+    clearFocusLock();
+    showToast('AE/AF automatika');
+    return;
+  }
+
   const ring = document.getElementById('focus-ring');
   if (ring) {
     ring.style.left = rx * 100 + '%';
     ring.style.top = ry * 100 + '%';
     ring.classList.remove('hidden');
-    setTimeout(() => ring.classList.add('hidden'), 1300);
+    ring.classList.add('locked');
+    // Nincs auto-elrejtés: a gyűrű a záron marad, amíg fel nem oldják / át nem helyezik
   }
 
   if (!S.stream) return;
@@ -608,17 +660,9 @@ async function triggerVfFocus(e) {
   videoX = Math.max(0, Math.min(1, videoX));
   videoY = Math.max(0, Math.min(1, videoY));
 
-  const focusLabel = document.getElementById('hud-focus-label');
-  if (focusLabel) focusLabel.textContent = 'MF';
-  try {
-    await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-    await tk.applyConstraints({
-      advanced: [{ focusMode: 'continuous', pointsOfInterest: [{ x: videoX, y: videoY }] }]
-    });
-  } catch (_) {
-    try { await tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (__) {}
-  }
-  setTimeout(() => { if (focusLabel) focusLabel.textContent = 'AF'; }, 2000);
+  S.focusLock = { x: videoX, y: videoY };
+  updateFocusLabel('AF-L');
+  await applyFocusLock(tk);
 }
 
 function tryLoadLuts(){ return Promise.resolve(); }
@@ -847,6 +891,9 @@ async function setStreamResolution(px, waitFrames = true) {
     return st;
   };
   sync();
+  // Felbontásváltáskor egyes eszközök újraindítják az AE/AF-et –
+  // ha aktív a koppintásos zár, visszakényszerítjük a pontra
+  if (S.focusLock) applyFocusLock(tk);
 
   if (!waitFrames) {
     // Késleltetett utó-ellenőrzés: csak ha azóta nem jött újabb kérés,
@@ -1085,7 +1132,7 @@ async function capture(){
       if(S.deActive) {
         S.deStage = 0;
         const sh = document.getElementById('shutter'); if(sh) sh.classList.remove('de-primed');
-        const fl = document.getElementById('hud-focus-label'); if(fl) fl.textContent = 'AF';
+        updateFocusLabel();
       }
       S.saving=false;
       // Mentés után visszaváltás: ha FX aktív, fél DPR-re vissza
@@ -1165,6 +1212,11 @@ async function initCam(preferredDeviceId = null){
         vid.play().catch(()=>{});
         const resEl = document.getElementById('hud-res'); if(resEl) resEl.textContent=S.vidW+'×'+S.vidH;
         const npEl = document.getElementById('noperm'); if(npEl) npEl.style.display='none';
+        // Új stream/kamera: a korábbi AE/AF zár pontja itt már értelmetlen
+        S.focusLock = null;
+        const fring = document.getElementById('focus-ring');
+        if (fring) fring.classList.add('hidden');
+        updateFocusLabel();
         tk.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
         updateCanvasDimensions();
         render();
