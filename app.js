@@ -1,8 +1,8 @@
 'use strict';
 /* ═══════════════════════════════════════
-   ANALOGIA — app.js v31 (FLASH FIX + SW AE LOCK + SMOOTH SAVE)
+   ANALOGIA — app.js v32 (TORCH VERIFY + DIAG)
 ═══════════════════════════════════════ */
-console.log('ANALOGIA app.js v31 betöltve');
+console.log('ANALOGIA app.js v32 betöltve');
 
 const PROF = {};
 
@@ -51,6 +51,28 @@ const glCv = document.getElementById('gl-canvas');
 // Globálisan újrahasznosított canvasok a capture memóriaszivárgásának megakadályozására
 let memoTmpCanvas = null;
 let memoSrcCanvas = null;
+
+/* ── DIAGNOSZTIKA (?debug=1) ──
+   Az URL-hez fűzött ?debug=1 paraméterrel a képernyő alján élő log jelenik meg:
+   kamera-képességek, vaku-parancsok TÉNYLEGES eredménye (getSettings ellenőrzés),
+   fókusz-koppintások adatai és minden el nem kapott JS hiba. Mérés, nem kísérlet. */
+const DIAG = /[?&]debug=1/.test(location.search);
+let diagEl = null;
+function dlog(msg){
+  if (!DIAG) return;
+  if (!diagEl) {
+    diagEl = document.createElement('div');
+    diagEl.style.cssText = 'position:fixed;left:4px;right:4px;bottom:4px;max-height:36vh;overflow:auto;z-index:99999;background:rgba(0,0,0,.88);color:#7CFC00;font:10px/1.5 monospace;padding:6px;border:1px solid #555;white-space:pre-wrap;pointer-events:none';
+    document.body.appendChild(diagEl);
+  }
+  diagEl.textContent += '[' + (performance.now()/1000).toFixed(1) + '] ' + msg + '\n';
+  diagEl.scrollTop = diagEl.scrollHeight;
+  try { console.log('[DIAG]', msg); } catch(_) {}
+}
+if (DIAG) {
+  window.addEventListener('error', e => dlog('JS HIBA: ' + e.message + ' @' + String(e.filename||'').split('/').pop() + ':' + e.lineno));
+  window.addEventListener('unhandledrejection', e => dlog('PROMISE HIBA: ' + ((e.reason && e.reason.message) || e.reason)));
+}
 
 function showToast(msg) {
   let t = document.getElementById('anal-toast');
@@ -624,7 +646,7 @@ function sampleAeBias(px, py){
     if (avg <= 0.004) return 1.5;
     const bias = Math.log2(0.45 / avg) * 0.8; // 0.45 ≈ középtónus; 0.8: ne legyen túl agresszív
     return Math.max(-1.5, Math.min(1.5, bias));
-  } catch (_) { return 0; }
+  } catch (e) { dlog('sampleAeBias hiba: ' + (e && e.message)); return 0; }
 }
 
 function updateFocusLabel(txt){
@@ -709,16 +731,22 @@ async function triggerVfFocus(e) {
   // Szoftveres fénymérés-zár: minden eszközön ad látható, zárolt hatást
   S.aeBias = sampleAeBias(videoX, videoY);
   markUniformsDirty();
+  dlog('TAP fókusz: videoXY=' + videoX.toFixed(2) + ',' + videoY.toFixed(2) + ' aeBias=' + S.aeBias.toFixed(2));
 
-  // Címke a hardveres képesség szerint: ha a kamera tud pont-fókuszt is → AF-L,
-  // ha csak a (szoftveres) fénymérés zárható → AE-L
+  // Címke a hardveres képesség szerint, a szoftveres EV-eltolás értékével
   let hwFocus = false;
   try {
     const caps = tk.getCapabilities ? tk.getCapabilities() : {};
     hwFocus = !!caps.pointsOfInterest || (Array.isArray(caps.focusMode) && caps.focusMode.length > 0);
+    dlog('Kamera caps: focusMode=' + JSON.stringify(caps.focusMode) + ' exposureMode=' + JSON.stringify(caps.exposureMode) + ' poi=' + ('pointsOfInterest' in caps) + ' torch=' + caps.torch);
   } catch (_) {}
-  updateFocusLabel(hwFocus ? 'AF-L' : 'AE-L');
+  const biasTxt = (S.aeBias >= 0 ? '+' : '') + S.aeBias.toFixed(1);
+  updateFocusLabel((hwFocus ? 'AF-L ' : 'AE-L ') + biasTxt);
   await applyFocusLock(tk);
+  if (DIAG) {
+    let st = {}; try { st = tk.getSettings(); } catch(_) {}
+    dlog('Zár után settings: focusMode=' + st.focusMode + ' exposureMode=' + st.exposureMode + ' poi=' + JSON.stringify(st.pointsOfInterest));
+  }
 }
 
 function tryLoadLuts(){ return Promise.resolve(); }
@@ -834,8 +862,11 @@ function toggleFlash() {
   if (btn) btn.classList.toggle('active', flashEnabled);
   if (flashEnabled) {
     const tk = S.stream && S.stream.getVideoTracks()[0];
+    let caps = {};
+    try { caps = tk && tk.getCapabilities ? tk.getCapabilities() : {}; } catch(_) {}
+    dlog('Vaku BE. torch képesség: ' + JSON.stringify(caps.torch));
     if (!(tk && trackSupportsTorch(tk))) showToast('Ezen a kamerán nincs vaku');
-  }
+  } else { dlog('Vaku KI.'); }
 }
 
 function toggleDust() {
@@ -977,10 +1008,12 @@ async function capture(){
   if(!(vid && vid.readyState>=2))return;
   S.saving = true;
   setSavingIndicator(true);
+  dlog('EXPO indul. flashEnabled=' + flashEnabled);
 
   // Vaku-módban BEVÁRJUK az élesítést (a torch-parancs csak utána garantáltan
   // érvényes), majd néhány kockát, hogy a fény beérjen az expozícióba
   if (flashEnabled) { try { await armPromise; } catch (_) {} }
+  dlog('EXPO: torchArmed=' + torchArmed);
   if (torchArmed) await waitForVideoFrames(5, 400);
 
   if(S.deActive && S.deStage === 0) {
@@ -1314,10 +1347,30 @@ function armCapture(e) {
     if (flashEnabled && S.stream) {
       const tk = S.stream.getVideoTracks()[0];
       if (tk && trackSupportsTorch(tk)) {
+        // FONTOS: az "advanced" kérést a böngésző NÉMÁN eldobhatja (best effort),
+        // a promise sikerrel fut le akkor is, ha a vaku nem gyulladt fel.
+        // Ezért a getSettings().torch-ból VISSZAELLENŐRIZZÜK, és ha nem ég,
+        // kötelező érvényű (nem-advanced) kéréssel próbáljuk újra – az legalább
+        // hibát dob támogatás hiányában, nem hazudik.
+        torchArmed = false;
         try {
           await tk.applyConstraints({ advanced: [{ torch: true }] });
-          torchArmed = true;
-        } catch (_) { torchArmed = false; }
+          let st = {}; try { st = tk.getSettings(); } catch(_) {}
+          dlog('VAKU advanced kérés után settings.torch=' + st.torch);
+          if (st.torch === true) {
+            torchArmed = true;
+          } else {
+            await tk.applyConstraints({ torch: true });
+            try { st = tk.getSettings(); } catch(_) {}
+            dlog('VAKU kötelező kérés után settings.torch=' + st.torch);
+            torchArmed = (st.torch === true);
+          }
+        } catch (e) {
+          dlog('VAKU elutasítva: ' + (e && e.name) + ' ' + (e && e.message));
+        }
+        if (!torchArmed) showToast('A kamera elutasította a vakut');
+      } else {
+        dlog('VAKU: a track nem jelez torch képességet');
       }
     }
   })();
