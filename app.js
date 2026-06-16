@@ -619,9 +619,8 @@ if (vfOverlay) {
 
   function handleVfPointerUp(e) {
     try { vfOverlay.releasePointerCapture(e.pointerId); } catch (_) {}
-    if (vfPointers.has(e.pointerId) && vfPointers.size === 1 && !isPinching) {
-      triggerVfFocus(e);
-    }
+    // Rábökéssel fókusz/fénymérés KIKAPCSOLVA: analóg üzemmód = automata fókusz
+    // és teljes képre fénymérés. Csak a csippentéses zoom marad meg.
     vfPointers.delete(e.pointerId);
     if (vfPointers.size === 0) {
       isPinching = false;
@@ -642,6 +641,12 @@ if (vfOverlay) {
 let aeSampleCv = null;
 
 function sampleAeBias(px, py){
+  // Analóg üzemmód: pont-alapú fénymérés KIKAPCSOLVA. A fénymérést teljes
+  // egészében a kamera saját, teljes képre vonatkozó automatikája végzi,
+  // ezért itt soha nincs digitális EV-korrekció.
+  return 0;
+}
+function _sampleAeBias_unused(px, py){
   try {
     if (!vid || !vid.videoWidth) return 0;
     if (!aeSampleCv) aeSampleCv = document.createElement('canvas');
@@ -713,7 +718,8 @@ function sampleAeBias(px, py){
 
 function updateFocusLabel(txt){
   const fl = document.getElementById('hud-focus-label');
-  if (fl) fl.textContent = txt || (S.focusLock ? 'AF-L' : 'AF');
+  // Analóg üzemmód: mindig automata fókusz, nincs zár-állapot.
+  if (fl) fl.textContent = 'AF';
 }
 
 async function applyFocusLock(tk){
@@ -721,10 +727,7 @@ async function applyFocusLock(tk){
   let caps = {};
   try { caps = tk.getCapabilities ? tk.getCapabilities() : {}; } catch(_) {}
   const out = { focus:false, exposure:false };
-  // A vertex shader függőlegesen tükrözve olvassa a textúrát (v_uv.y = .5 - ...),
-  // a hardveres pointsOfInterest viszont a szenzor natív (nem tükrözött) Y-tengelyét
-  // várja, ezért az Y-t meg kell fordítani.
-  const poi = [{ x: S.focusLock.x, y: 1 - S.focusLock.y }];
+  const poi = [{ x: S.focusLock.x, y: S.focusLock.y }];
 
   // A KORÁBBI BUG: minden advanced-csomagban ott volt a pointsOfInterest is,
   // és ha azt az eszköz nem tudja (mint a Redmi Note 13), a böngésző az EGÉSZ
@@ -841,17 +844,15 @@ async function triggerVfFocus(e) {
   const vAR = S.vidW / S.vidH;    // A nyers videó képaránya
   
   let scX = 1.0, scY = 1.0;
-  // A cropUV INVERZE: a shader (uv-.5)*sc+.5 képletet használ a videó->canvas
-  // irányba, ezért a canvas->videó visszafejtéshez a RECIPROKKAL kell szorozni,
-  // és a zoommal SZOROZNI (nem osztani).
+  // Ugyanaz az object-fit: cover logika, mint a cropUV-ben
   if (vAR > cAR) {
-    scX = vAR / cAR;
+    scX = cAR / vAR;
   } else {
-    scY = cAR / vAR;
+    scY = vAR / cAR;
   }
   
-  scX *= S.zoom;
-  scY *= S.zoom;
+  scX /= S.zoom;
+  scY /= S.zoom;
   
   // Visszafejtjük a videótextúra koordinátát a UI koppintásból
   let videoX = 0.5 + (rx - 0.5) * scX;
@@ -1118,13 +1119,10 @@ async function setStreamResolution(px, waitFrames = true) {
   // Felbontásváltáskor egyes eszközök újraindítják az AE/AF-et – a zárat
   // visszakényszerítjük. Betonozott (manual) fókusznál a tárolt távolságot
   // állítjuk vissza, így nincs újabb fókusz-söprés.
-  if (S.focusLock) {
-    if (S.lockedFocusDistance != null) {
-      tk.applyConstraints({ focusMode: 'manual', focusDistance: S.lockedFocusDistance }).catch(()=>{});
-    } else {
-      applyFocusLock(tk);
-    }
-  }
+  // Analóg üzemmód: felbontásváltás után is FOLYAMATOS automata fókusz.
+  // (Nincs pont-zár; a kamera közeli tárgyra rááll, egyébként távol/végtelen felé.)
+  tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(()=>{});
+  tk.applyConstraints({ focusMode: 'continuous' }).catch(()=>{});
 
   if (!waitFrames) {
     // Késleltetett utó-ellenőrzés: csak ha azóta nem jött újabb kérés,
@@ -1448,6 +1446,8 @@ async function initCam(preferredDeviceId = null){
         if (fring) fring.classList.add('hidden');
         updateFocusLabel();
         tk.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
+        tk.applyConstraints({focusMode:'continuous'}).catch(()=>{});
+        tk.applyConstraints({exposureMode:'continuous'}).catch(()=>{});
         updateCanvasDimensions();
         render();
       };
@@ -1526,16 +1526,7 @@ if(shutterBtn) {
   shutterBtn.addEventListener('pointercancel', disarmCapture);
 }
 
-// Rejtett diag-kapcsoló: 7 gyors koppintás az ANALOGIA feliratra
-// (telepített PWA-ban így érhető el a napló, URL-paraméter nélkül)
-const brandEl = document.querySelector('.brand');
-let diagTaps = 0, diagTapTimer = null;
-if (brandEl) brandEl.addEventListener('click', () => {
-  diagTaps++;
-  clearTimeout(diagTapTimer);
-  diagTapTimer = setTimeout(() => { diagTaps = 0; }, 1600);
-  if (diagTaps >= 7) { diagTaps = 0; toggleDiag(); }
-});
+// Rejtett diag-kapcsoló (7 koppintás az ANALOGIA feliratra) ELTÁVOLÍTVA.
 
 document.querySelectorAll('.mode-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
