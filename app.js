@@ -721,7 +721,10 @@ async function applyFocusLock(tk){
   let caps = {};
   try { caps = tk.getCapabilities ? tk.getCapabilities() : {}; } catch(_) {}
   const out = { focus:false, exposure:false };
-  const poi = [{ x: S.focusLock.x, y: S.focusLock.y }];
+  // A vertex shader függőlegesen tükrözve olvassa a textúrát (v_uv.y = .5 - ...),
+  // a hardveres pointsOfInterest viszont a szenzor natív (nem tükrözött) Y-tengelyét
+  // várja, ezért az Y-t meg kell fordítani.
+  const poi = [{ x: S.focusLock.x, y: 1 - S.focusLock.y }];
 
   // A KORÁBBI BUG: minden advanced-csomagban ott volt a pointsOfInterest is,
   // és ha azt az eszköz nem tudja (mint a Redmi Note 13), a böngésző az EGÉSZ
@@ -838,15 +841,17 @@ async function triggerVfFocus(e) {
   const vAR = S.vidW / S.vidH;    // A nyers videó képaránya
   
   let scX = 1.0, scY = 1.0;
-  // Ugyanaz az object-fit: cover logika, mint a cropUV-ben
+  // A cropUV INVERZE: a shader (uv-.5)*sc+.5 képletet használ a videó->canvas
+  // irányba, ezért a canvas->videó visszafejtéshez a RECIPROKKAL kell szorozni,
+  // és a zoommal SZOROZNI (nem osztani).
   if (vAR > cAR) {
-    scX = cAR / vAR;
+    scX = vAR / cAR;
   } else {
-    scY = vAR / cAR;
+    scY = cAR / vAR;
   }
   
-  scX /= S.zoom;
-  scY /= S.zoom;
+  scX *= S.zoom;
+  scY *= S.zoom;
   
   // Visszafejtjük a videótextúra koordinátát a UI koppintásból
   let videoX = 0.5 + (rx - 0.5) * scX;
