@@ -309,7 +309,9 @@ void main(){
   // és pozitív irányban sem éghet ki, csak aszimptotikusan közelíti a fehéret.
   float highlightMask = smoothstep(0.15, 0.9, linLum);
   float hlFactor = 1.0 + u_highlights * 0.6; // + : fények kihúzása, − : tompítás/recovery
-  vec3 invc = 1.0 - clamp(linear, 0.0, 1.0);
+  // --- ÚJ, BIZTONSÁGOS KÓD ---
+  // A max() függvénnyel garantáljuk, hogy sosem lesz tökéletes nulla az alap
+  vec3 invc = max(1.0 - clamp(linear, 0.0, 1.0), 0.00001);
   vec3 hlAdj = 1.0 - pow(invc, vec3(hlFactor));
   linear = mix(linear, hlAdj, highlightMask);
   
@@ -638,26 +640,75 @@ if (vfOverlay) {
 // ami középtónusra húzza. Ez MINDEN eszközön működik (a mentett képre is hat) –
 // ott is, ahol a kamera hardveresen nem tud pont-alapú fénymérést.
 let aeSampleCv = null;
+
 function sampleAeBias(px, py){
   try {
     if (!vid || !vid.videoWidth) return 0;
     if (!aeSampleCv) aeSampleCv = document.createElement('canvas');
     const c = aeSampleCv; c.width = 32; c.height = 32;
     const ctx = c.getContext('2d', { willReadFrequently: true });
+    
     const fw = vid.videoWidth, fh = vid.videoHeight;
+    // A mintavételezési terület mérete
     const rw = Math.max(16, Math.round(fw * 0.12));
     const rh = Math.max(16, Math.round(fh * 0.12));
     const sx = Math.min(Math.max(0, Math.round(px * fw - rw / 2)), fw - rw);
     const sy = Math.min(Math.max(0, Math.round(py * fh - rh / 2)), fh - rh);
+    
     ctx.drawImage(vid, sx, sy, rw, rh, 0, 0, 32, 32);
     const d = ctx.getImageData(0, 0, 32, 32).data;
-    let sum = 0;
-    for (let i = 0; i < d.length; i += 4) sum += 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
-    const avg = (sum / (d.length / 4)) / 255;
-    if (avg <= 0.004) return 1.5;
-    const bias = Math.log2(0.45 / avg) * 0.8; // 0.45 ≈ középtónus; 0.8: ne legyen túl agresszív
+    
+    let sumLum = 0;
+    let sumWeight = 0;
+    
+    // Pixel-szintű iteráció a 32x32-es mintán
+    for (let y = 0; y < 32; y++) {
+      for (let x = 0; x < 32; x++) {
+        const i = (y * 32 + x) * 4;
+        
+        // 1. KÖZÉPRE SÚLYOZÁS (Center-weighting)
+        // Kiszámoljuk a távolságot a középponttól (15.5, 15.5)
+        const dx = (x - 15.5) / 16.0;
+        const dy = (y - 15.5) / 16.0;
+        // Haranggörbe-szerű súlyozás: középen 1.0, a sarkok felé közelít a 0-hoz
+        const weight = Math.max(0, 1.0 - (dx * dx + dy * dy));
+        
+        // 2. LINEÁRIS SZÍNTÉR (Fast sRGB to Linear approximation)
+        // A hatványozás (val/255)^2 elég jó és nagyon gyors közelítése a 2.2-es gammának
+        const r = d[i] / 255.0;
+        const g = d[i+1] / 255.0;
+        const b = d[i+2] / 255.0;
+        const linearLum = 0.2126 * (r * r) + 0.7152 * (g * g) + 0.0722 * (b * b);
+        
+        sumLum += linearLum * weight;
+        sumWeight += weight;
+      }
+    }
+    
+    // A súlyozott, lineáris átlagfényesség
+    const avgLinear = sumLum / sumWeight;
+    
+    // Fotográfiai "Középszürke" (Middle Gray) célpont lineáris térben ~18% (0.18)
+    const targetLum = 0.18; 
+    
+    // Védelem a 0-val osztás ellen mélyfekete árnyékoknál
+    const safeAvg = Math.max(avgLinear, 0.002);
+    
+    // Kiszámoljuk a szükséges EV eltolást (Exposure Value)
+    // Ha a mért terület sötétebb a középszürkénél (pl. 0.09), az eredmény +1 EV
+    let bias = Math.log2(targetLum / safeAvg);
+    
+    // Csillapítás: ne húzzuk rá 100%-osan a digitális kompenzációt, 
+    // hogy megmaradjon a jelenet természetes kontrasztja (0.75x szorzó)
+    bias *= 0.75;
+    
+    // Szigorú vágás a túlvezérlés ellen
     return Math.max(-1.5, Math.min(1.5, bias));
-  } catch (e) { dlog('sampleAeBias hiba: ' + (e && e.message)); return 0; }
+    
+  } catch (e) { 
+    dlog('sampleAeBias hiba: ' + (e && e.message)); 
+    return 0; 
+  }
 }
 
 function updateFocusLabel(txt){
@@ -781,14 +832,26 @@ async function triggerVfFocus(e) {
   const tk = S.stream.getVideoTracks()[0];
   if (!tk) return;
 
-  const vAR = S.vidW / S.vidH;
-  let videoX = 0.5 + (rx - 0.5) / S.zoom;
-  let videoY = 0.5 + (ry - 0.5) / S.zoom;
-  if (vAR > 1) {
-    videoX = 0.5 + (rx - 0.5) / (vAR * S.zoom);
-  } else if (vAR < 1) {
-    videoY = 0.5 + (ry - 0.5) * (vAR / S.zoom);
+
+  // --- ÚJ, SHADER-SZINKRONIZÁLT LOGIKA ---
+  const cAR = r.width / r.height; // A látható canvas képaránya
+  const vAR = S.vidW / S.vidH;    // A nyers videó képaránya
+  
+  let scX = 1.0, scY = 1.0;
+  // Ugyanaz az object-fit: cover logika, mint a cropUV-ben
+  if (vAR > cAR) {
+    scX = cAR / vAR;
+  } else {
+    scY = vAR / cAR;
   }
+  
+  scX /= S.zoom;
+  scY /= S.zoom;
+  
+  // Visszafejtjük a videótextúra koordinátát a UI koppintásból
+  let videoX = 0.5 + (rx - 0.5) * scX;
+  let videoY = 0.5 + (ry - 0.5) * scY;
+  
   videoX = Math.max(0, Math.min(1, videoX));
   videoY = Math.max(0, Math.min(1, videoY));
 
