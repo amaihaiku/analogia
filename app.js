@@ -281,6 +281,21 @@ float hash3D(vec3 p){p=fract(p*vec3(443.8975,397.2973,491.1871));p+=dot(p.xyz,p.
 float noise3D(vec3 p){vec3 i=floor(p);vec3 f=fract(p);vec3 fp=f*f*(3.0-2.0*f);return mix(mix(mix(hash3D(i+vec3(0.,0.,0.)),hash3D(i+vec3(1.,0.,0.)),fp.x),mix(hash3D(i+vec3(0.,1.,0.)),hash3D(i+vec3(1.,1.,0.)),fp.x),fp.y),mix(mix(hash3D(i+vec3(0.,0.,1.)),hash3D(i+vec3(1.,0.,1.)),fp.x),mix(hash3D(i+vec3(0.,1.,1.)),hash3D(i+vec3(1.,1.,1.)),fp.x),fp.y),fp.z);}
 float softLight(float base,float blend){return(blend<0.5)?(base-(1.0-2.0*blend)*base*(1.0-base)):(base+(2.0*blend-1.0)*(sqrt(base)-base));}
 
+// LÁGY FÉNY-TÉRDHAJLÍTÁS (soft knee / highlight rolloff).
+// KNEE küszöb alatt: pontosan x (identitás) -> sötét és középtónusok érintetlenek.
+// KNEE fölött: a (KNEE, +∞) tartományt aszimptotikusan a (KNEE, 1.0) sávba telíti,
+// így az eredmény SOHA nem éri el az 1.0-t (a tiszta fehér kivételével), tehát
+// a csúcsfények nem éghetnek sík fehérré, a részletek megmaradnak.
+float soft_knee1(float x){
+  const float KNEE = 0.7;            // eddig lineáris (érintetlen) a jel
+  if (x <= KNEE) return x;
+  float over = x - KNEE;             // a küszöb fölötti rész
+  float room = 1.0 - KNEE;           // ennyi hely maradt a fehérig
+  // telítődő leképezés: over∈[0,∞) -> [0,room), aszimptota = 1.0
+  return KNEE + room * (over / (over + room));
+}
+vec3 soft_knee(vec3 c){ return vec3(soft_knee1(c.r), soft_knee1(c.g), soft_knee1(c.b)); }
+
 ${window.FX && window.FX.shader ? window.FX.shader.helpers : ''}
 
 void main(){
@@ -288,12 +303,18 @@ void main(){
   vuv = clamp(vuv, 0.0, 1.0); 
   
   vec3 srgbIn = texture2D(u_vid_tex,vuv).rgb;
-  vec3 linA = pow(srgbIn, vec3(2.2)) * u_ev;
+  // EV alkalmazása + LÁGY FÉNY-TÉRDHAJLÍTÁS (soft knee).
+  // A "* u_ev" szorzás a fényeket 1.0 fölé löki, amit a clamp sík fehérré éget.
+  // A soft_knee() a küszöb (KNEE) ALATT pontosan IDENTITÁS — a sötét és
+  // középtónusok teljesen érintetlenek, a kép alapból ugyanúgy néz ki, mint eddig.
+  // A küszöb FÖLÖTT a fényeket aszimptotikusan az 1.0-hoz telíti, így a beégés
+  // matematikailag lehetetlen, de a csúcsfény-részletek megmaradnak.
+  vec3 linA = soft_knee(pow(srgbIn, vec3(2.2)) * u_ev);
   vec3 linear = linA;
   
   if(u_de_active > 0.5) {
     vec3 srgbFirst = texture2D(u_de_tex, vuv).rgb;
-    vec3 linB = pow(srgbFirst, vec3(2.2)) * u_ev;
+    vec3 linB = soft_knee(pow(srgbFirst, vec3(2.2)) * u_ev);
     linear = 1.0 - ((1.0 - clamp(linA, 0.0, 1.0)) * (1.0 - clamp(linB, 0.0, 1.0)));
   }
   
@@ -492,7 +513,7 @@ function drawFrame(){
   try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}catch(e){return;}
 
   gl.uniform2f(U.u_cvs_sz,cachedCanvasW,cachedCanvasH);gl.uniform2f(U.u_vid_sz,S.vidW,S.vidH);
-  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure+(S.aeBias||0)));
+  gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
   gl.uniform1f(U.u_vig,S.vignette);
   gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
 
@@ -619,8 +640,9 @@ if (vfOverlay) {
 
   function handleVfPointerUp(e) {
     try { vfOverlay.releasePointerCapture(e.pointerId); } catch (_) {}
-    // Rábökéssel fókusz/fénymérés KIKAPCSOLVA: analóg üzemmód = automata fókusz
-    // és teljes képre fénymérés. Csak a csippentéses zoom marad meg.
+    if (vfPointers.has(e.pointerId) && vfPointers.size === 1 && !isPinching) {
+      triggerVfFocus(e);
+    }
     vfPointers.delete(e.pointerId);
     if (vfPointers.size === 0) {
       isPinching = false;
@@ -641,12 +663,6 @@ if (vfOverlay) {
 let aeSampleCv = null;
 
 function sampleAeBias(px, py){
-  // Analóg üzemmód: pont-alapú fénymérés KIKAPCSOLVA. A fénymérést teljes
-  // egészében a kamera saját, teljes képre vonatkozó automatikája végzi,
-  // ezért itt soha nincs digitális EV-korrekció.
-  return 0;
-}
-function _sampleAeBias_unused(px, py){
   try {
     if (!vid || !vid.videoWidth) return 0;
     if (!aeSampleCv) aeSampleCv = document.createElement('canvas');
@@ -718,8 +734,7 @@ function _sampleAeBias_unused(px, py){
 
 function updateFocusLabel(txt){
   const fl = document.getElementById('hud-focus-label');
-  // Analóg üzemmód: mindig automata fókusz, nincs zár-állapot.
-  if (fl) fl.textContent = 'AF';
+  if (fl) fl.textContent = txt || (S.focusLock ? 'AF-L' : 'AF');
 }
 
 async function applyFocusLock(tk){
@@ -1119,10 +1134,13 @@ async function setStreamResolution(px, waitFrames = true) {
   // Felbontásváltáskor egyes eszközök újraindítják az AE/AF-et – a zárat
   // visszakényszerítjük. Betonozott (manual) fókusznál a tárolt távolságot
   // állítjuk vissza, így nincs újabb fókusz-söprés.
-  // Analóg üzemmód: felbontásváltás után is FOLYAMATOS automata fókusz.
-  // (Nincs pont-zár; a kamera közeli tárgyra rááll, egyébként távol/végtelen felé.)
-  tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(()=>{});
-  tk.applyConstraints({ focusMode: 'continuous' }).catch(()=>{});
+  if (S.focusLock) {
+    if (S.lockedFocusDistance != null) {
+      tk.applyConstraints({ focusMode: 'manual', focusDistance: S.lockedFocusDistance }).catch(()=>{});
+    } else {
+      applyFocusLock(tk);
+    }
+  }
 
   if (!waitFrames) {
     // Késleltetett utó-ellenőrzés: csak ha azóta nem jött újabb kérés,
@@ -1233,7 +1251,7 @@ async function capture(){
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,snapTex);
       // u_cvs_sz = OUT×OUT → pontos négyzetes vágás; u_vid_sz = TÉNYLEGES frame-méret
       gl.uniform2f(U.u_cvs_sz,OUT,OUT);gl.uniform2f(U.u_vid_sz,frameW,frameH);
-      gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure+(S.aeBias||0)));
+      gl.uniform1f(U.u_zoom,S.zoom);gl.uniform1f(U.u_ev,Math.pow(2,S.exposure));
       gl.uniform1f(U.u_vig,S.vignette);
       gl.uniform1f(U.u_shadows,S.shadows);gl.uniform1f(U.u_highlights,S.highlights);gl.uniform1f(U.u_tone,S.tone);
       
@@ -1446,8 +1464,6 @@ async function initCam(preferredDeviceId = null){
         if (fring) fring.classList.add('hidden');
         updateFocusLabel();
         tk.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
-        tk.applyConstraints({focusMode:'continuous'}).catch(()=>{});
-        tk.applyConstraints({exposureMode:'continuous'}).catch(()=>{});
         updateCanvasDimensions();
         render();
       };
@@ -1526,7 +1542,16 @@ if(shutterBtn) {
   shutterBtn.addEventListener('pointercancel', disarmCapture);
 }
 
-// Rejtett diag-kapcsoló (7 koppintás az ANALOGIA feliratra) ELTÁVOLÍTVA.
+// Rejtett diag-kapcsoló: 7 gyors koppintás az ANALOGIA feliratra
+// (telepített PWA-ban így érhető el a napló, URL-paraméter nélkül)
+const brandEl = document.querySelector('.brand');
+let diagTaps = 0, diagTapTimer = null;
+if (brandEl) brandEl.addEventListener('click', () => {
+  diagTaps++;
+  clearTimeout(diagTapTimer);
+  diagTapTimer = setTimeout(() => { diagTaps = 0; }, 1600);
+  if (diagTaps >= 7) { diagTaps = 0; toggleDiag(); }
+});
 
 document.querySelectorAll('.mode-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
