@@ -19,15 +19,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 
 .rotate-overlay{position:fixed;inset:0;z-index:9999;background:#000;display:flex;align-items:center;justify-content:center}
 
-/* Mentés-jelző: expo után a kép elkészültéig látszik, és teljes képernyősként
-   minden érintést elnyel – mentés közben nem lehet belenyúlni az appba. */
 .saving-overlay{position:fixed;inset:0;z-index:8900;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(10,9,7,.55);touch-action:none}
 .saving-spinner{width:42px;height:42px;border-radius:50%;border:2.5px solid var(--gold-dim);border-top-color:var(--gold);animation:savingSpin .8s linear infinite}
 @keyframes savingSpin{to{transform:rotate(360deg)}}
 .saving-overlay span{font-size:11px;letter-spacing:.35em;text-indent:.35em;color:var(--gold)}
-/* Fekvő mód tiltása: érintőeszközön fekvő tájolásnál a blokkoló overlay
-   automatikusan megjelenik (a .hidden-t az ID nagyobb specificitása felülírja).
-   Telepített PWA-ban ezt a manifest "orientation":"portrait" eleve megelőzi. */
+
 @media (orientation: landscape) and (pointer: coarse) {
   #rotate-overlay{display:flex !important}
 }
@@ -39,7 +35,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 
 .modal{position:fixed;inset:0;z-index:999;display:flex;align-items:flex-end;justify-content:center}
 .modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.78);backdrop-filter:blur(8px)}
-.modal-box{position:relative;z-index:1;width:100%;max-width:540px;background:var(--metal2);border:1px solid var(--dim);border-bottom:none;border-radius:14px 14px 0 0;padding:20px 16px;max-height:75vh;overflow-y:auto}
+.modal-box{position:relative;z-index:1;width:100%;max-width:540px;background:var(--metal2);border:1px solid var(--dim);border-bottom:none;border-radius:14px 14px 0 0;padding:20px 16px;max-height:75dvh;overflow-y:auto}
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .modal-title{font-family:var(--display);font-size:22px;letter-spacing:.2em;color:var(--gold)}
 
@@ -65,7 +61,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .modal-upload-btn:active{background:var(--gold-glow)}
 .modal-upload-btn input{display:none}
 
-.shell{display:flex;flex-direction:column;width:100vw;height:var(--app-h,100dvh);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--bg2);background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.07) 0,rgba(0,0,0,.07) 1px,transparent 1px,transparent 5px),repeating-linear-gradient(0deg,rgba(0,0,0,.07) 0,rgba(0,0,0,.07) 1px,transparent 1px,transparent 5px);overflow:hidden}
+.shell{display:flex;flex-direction:column;width:100vw;height:var(--app-h,100dvh);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);background:var(--bg2);background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.07) 0,rgba(0,0,0,.07) 1px,transparent 1px,transparent 5px),repeating-linear-gradient(0deg,rgba(0,0,0,.07) 0,rgba(0,0,0,.07) 1px,transparent 1px,transparent 5px);overflow:hidden}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:var(--metal);border-bottom:2px solid var(--edge);flex-shrink:0;height:clamp(50px,calc(var(--app-h,800px)*0.085),68px);gap:10px}
 .brand-wrap{display:flex;align-items:center;height:44px;flex-shrink:0;position:relative}
 .brand{font-family:var(--display);font-size:30px;letter-spacing:.18em;color:var(--gold);line-height:44px;display:block}
@@ -86,10 +82,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 .exit-btn:active{transform:scale(0.92)}
 
 .vf-wrap{flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px 12px}
-/* Szűk függőleges helyen (böngészőfül, alacsonyabb kijelzőarány) a kereső
-   zsugorodik, NEM a kezelősor: a szélességét a rendelkezésre álló magasság
-   korlátozza, az aspect-ratio tartja négyzetben. A 380px a fix magasságú
-   elemek (topbar+sávok+gombsor) helyigénye. */
+
 .vf-bezel{position:relative;width:min(100%, max(220px, calc(var(--app-h,100dvh) - 350px)));aspect-ratio:1/1;background:#000;border:2px solid var(--dim);overflow:hidden;box-shadow:inset 0 0 24px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.6)}
 #gl-canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
 
@@ -116,7 +109,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 
 .focus-overlay{position:absolute;inset:0;z-index:3;cursor:crosshair;touch-action:none}
 .focus-ring{position:absolute;width:58px;height:58px;border:1.5px solid var(--gold);border-radius:3px;pointer-events:none;z-index:4;transform:translate(-50%,-50%);box-shadow:0 0 8px var(--gold-glow);transition:opacity .3s}
-/* AE/AF zár: a gyűrű a ponton marad, diszkrétebben, amíg a zárat fel nem oldják */
+
 .focus-ring.locked{opacity:.7;width:48px;height:48px;box-shadow:none}
 .focus-ring.hidden{opacity:0; display:block !important}
 .bc{position:absolute;width:12px;height:12px;z-index:5;pointer-events:none}
