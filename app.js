@@ -742,25 +742,35 @@ async function applyFocusLock(tk){
   let caps = {};
   try { caps = tk.getCapabilities ? tk.getCapabilities() : {}; } catch(_) {}
   const out = { focus:false, exposure:false };
-  const poi = [{ x: S.focusLock.x, y: S.focusLock.y }];
+  
+  // Biztonsági clamp: A kamera API szigorúan [0, 1] közötti értéket fogad el
+  const safeX = Math.max(0.0, Math.min(1.0, S.focusLock.x));
+  const safeY = Math.max(0.0, Math.min(1.0, S.focusLock.y));
+  const poi = [{ x: safeX, y: safeY }];
 
-  // A KORÁBBI BUG: minden advanced-csomagban ott volt a pointsOfInterest is,
-  // és ha azt az eszköz nem tudja (mint a Redmi Note 13), a böngésző az EGÉSZ
-  // csomagot eldobta – a támogatott single-shot-tal együtt. Ezért mostantól
-  // kulcsonként, KÖTELEZŐ formában kérünk, csak azt, amit a caps szerint tud.
+  const fModes = Array.isArray(caps.focusMode) ? caps.focusMode : [];
+  
+  // 1-2. LÉPÉS EGYESÍTVE: Pont kijelölése és fókusz indítása egy csomagban
+  let advancedConstraints = {};
+  let constraintAdded = false;
 
-  // 1) Pont kijelölése, ha támogatott (csak ekkor, külön kérésben)
   if ('pointsOfInterest' in caps) {
-    try { await tk.applyConstraints({ advanced: [{ pointsOfInterest: poi }] }); } catch(_) {}
+    advancedConstraints.pointsOfInterest = poi;
+    constraintAdded = true;
+  }
+  
+  if (fModes.includes('single-shot')) {
+    advancedConstraints.focusMode = 'single-shot';
+    constraintAdded = true;
   }
 
-  // 2) Fókusz zárása: single-shot = egyszer fókuszál, aztán TART
-  const fModes = Array.isArray(caps.focusMode) ? caps.focusMode : [];
-  if (fModes.includes('single-shot')) {
+  if (constraintAdded) {
     try {
-      await tk.applyConstraints({ focusMode: 'single-shot' });
+      await tk.applyConstraints({ advanced: [advancedConstraints] });
       out.focus = true;
-    } catch(e){ dlog('focusMode single-shot elutasítva: ' + (e && e.name)); }
+    } catch(e) {
+      dlog('Focus applyConstraints hiba: ' + (e && e.name));
+    }
   }
 
   // 2/b) Betonozás: ha van manual mód + focusDistance, a beállt távolságot
@@ -1495,42 +1505,41 @@ function torchOff(){
 function armCapture(e) {
   if (S.saving || !S.ready) return;
   try { if (e && shutterBtn) shutterBtn.setPointerCapture(e.pointerId); } catch (_) {}
-  // SORBA fűzve: előbb a felbontásváltás fejeződjön be, UTÁNA a vaku.
-  // (Korábbi bug: a két applyConstraints párhuzamosan futott és felülírta
-  // egymást – ezért nem működött a vaku.)
+  
   armPromise = (async () => {
-    await setStreamResolution(CAPTURE_RES);
+    // JAVÍTÁS: Ha a felhasználó manuálisan rögzítette a fókuszt, TILOS
+    // felbontást váltani, különben a kameraszenzor hardveresen újraindul, 
+    // és eldobja a fókusz zárat.
+    if (!S.focusLock) {
+      await setStreamResolution(CAPTURE_RES);
+    } else {
+      dlog('AE/AF Lock aktív - felbontásváltás kihagyva a fókusz megtartása érdekében.');
+    }
+
     if (flashEnabled && S.stream) {
       const tk = S.stream.getVideoTracks()[0];
       if (tk && trackSupportsTorch(tk)) {
-        // FONTOS: az "advanced" kérést a böngésző NÉMÁN eldobhatja (best effort),
-        // a promise sikerrel fut le akkor is, ha a vaku nem gyulladt fel.
-        // Ezért a getSettings().torch-ból VISSZAELLENŐRIZZÜK, és ha nem ég,
-        // kötelező érvényű (nem-advanced) kéréssel próbáljuk újra – az legalább
-        // hibát dob támogatás hiányában, nem hazudik.
         torchArmed = false;
         try {
           await tk.applyConstraints({ advanced: [{ torch: true }] });
           let st = {}; try { st = tk.getSettings(); } catch(_) {}
-          dlog('VAKU advanced kérés után settings.torch=' + st.torch);
           if (st.torch === true) {
             torchArmed = true;
           } else {
             await tk.applyConstraints({ torch: true });
             try { st = tk.getSettings(); } catch(_) {}
-            dlog('VAKU kötelező kérés után settings.torch=' + st.torch);
             torchArmed = (st.torch === true);
           }
         } catch (e) {
-          dlog('VAKU elutasítva: ' + (e && e.name) + ' ' + (e && e.message));
+          dlog('VAKU elutasítva: ' + (e && e.name));
         }
         if (!torchArmed) showToast('A kamera elutasította a vakut');
-      } else {
-        dlog('VAKU: a track nem jelez torch képességet');
       }
     }
   })();
 }
+
+
 function disarmCapture() {
   armPromise = null;
   torchOff();
