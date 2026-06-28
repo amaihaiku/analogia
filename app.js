@@ -742,18 +742,17 @@ async function applyFocusLock(tk){
   let caps = {};
   try { caps = tk.getCapabilities ? tk.getCapabilities() : {}; } catch(_) {}
   const out = { focus:false, exposure:false };
-  
+
   // Biztonsági clamp: A kamera API szigorúan [0, 1] közötti értéket fogad el
   const safeX = Math.max(0.0, Math.min(1.0, S.focusLock.x));
   const safeY = Math.max(0.0, Math.min(1.0, S.focusLock.y));
   const poi = [{ x: safeX, y: safeY }];
 
   const fModes = Array.isArray(caps.focusMode) ? caps.focusMode : [];
-  
-  // 1-2. LÉPÉS EGYESÍTVE: Pont kijelölése és fókusz indítása egy csomagban
   let advancedConstraints = {};
   let constraintAdded = false;
 
+  // 1-2. LÉPÉS EGYESÍTVE: Pont kijelölése és fókusz indítása egyetlen csomagban
   if ('pointsOfInterest' in caps) {
     advancedConstraints.pointsOfInterest = poi;
     constraintAdded = true;
@@ -839,16 +838,8 @@ async function triggerVfFocus(e) {
   const rx = (e.clientX - r.left) / r.width;
   const ry = (e.clientY - r.top) / r.height;
 
-  // Dupla koppintás → zár feloldása, vissza automatikára
-  const now = performance.now();
-  const isDouble = (now - lastVfTap.t < 320) &&
-    Math.hypot(e.clientX - lastVfTap.x, e.clientY - lastVfTap.y) < 40;
-  lastVfTap = { t: now, x: e.clientX, y: e.clientY };
-  if (isDouble) {
-    clearFocusLock();
-    showToast('AE/AF automatika');
-    return;
-  }
+  // A DUPLA KOPPINTÁS LOGIKA TELJESEN ELTÁVOLÍTVA.
+  // Bármilyen új koppintás egyszerűen áthelyezi a fókuszt.
 
   const ring = document.getElementById('focus-ring');
   if (ring) {
@@ -856,20 +847,17 @@ async function triggerVfFocus(e) {
     ring.style.top = ry * 100 + '%';
     ring.classList.remove('hidden');
     ring.classList.add('locked');
-    // Nincs auto-elrejtés: a gyűrű a záron marad, amíg fel nem oldják / át nem helyezik
   }
 
   if (!S.stream) return;
   const tk = S.stream.getVideoTracks()[0];
   if (!tk) return;
 
-
-  // --- ÚJ, SHADER-SZINKRONIZÁLT LOGIKA ---
+  // --- SHADER-SZINKRONIZÁLT LOGIKA ---
   const cAR = r.width / r.height; // A látható canvas képaránya
   const vAR = S.vidW / S.vidH;    // A nyers videó képaránya
   
   let scX = 1.0, scY = 1.0;
-  // Ugyanaz az object-fit: cover logika, mint a cropUV-ben
   if (vAR > cAR) {
     scX = cAR / vAR;
   } else {
@@ -898,10 +886,14 @@ async function triggerVfFocus(e) {
     const caps = tk.getCapabilities ? tk.getCapabilities() : {};
     dlog('Kamera caps: focusMode=' + JSON.stringify(caps.focusMode) + ' exposureMode=' + JSON.stringify(caps.exposureMode) + ' poi=' + ('pointsOfInterest' in caps) + ' torch=' + caps.torch);
   } catch (_) {}
+  
   const biasTxt = (S.aeBias >= 0 ? '+' : '') + S.aeBias.toFixed(1);
   updateFocusLabel('AE-L ' + biasTxt); // előzetes; a hardveres zár után pontosítjuk
+  
+  // Végrehajtjuk az új, összevont fókusz parancsot
   const lock = await applyFocusLock(tk);
   updateFocusLabel((lock.focus ? (lock.exposure ? 'AE/AF-L ' : 'AF-L ') : 'AE-L ') + biasTxt);
+  
   if (DIAG) {
     let st = {}; try { st = tk.getSettings(); } catch(_) {}
     dlog('Zár után settings: focusMode=' + st.focusMode + ' exposureMode=' + st.exposureMode + ' poi=' + JSON.stringify(st.pointsOfInterest));
