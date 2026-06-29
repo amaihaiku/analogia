@@ -685,7 +685,7 @@ let aeSampleCv = null;
 
 function updateFocusLabel(txt){
   const fl = document.getElementById('hud-focus-label');
-  if (fl) fl.textContent = 'AF';
+  if (fl) fl.textContent = txt || 'AF';
 }
 
 
