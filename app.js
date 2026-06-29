@@ -19,7 +19,7 @@ const S={
   vidW:1,vidH:1,
   lastPhotoUrl:null,
   deActive: false,    
-  deStage: 0    
+  deStage: 0,    
   mfActive: false,   // <-- ÚJ
   focusDist: 0.5     // <-- ÚJ      
 };
