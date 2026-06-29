@@ -19,7 +19,9 @@ const S={
   vidW:1,vidH:1,
   lastPhotoUrl:null,
   deActive: false,    
-  deStage: 0          
+  deStage: 0    
+  mfActive: false,   // <-- ÚJ
+  focusDist: 0.5     // <-- ÚJ      
 };
 
 let videoDevices = [];
@@ -556,17 +558,33 @@ const MODES={
   tone:       {min:-1,  max:1,   step:.04,hasCenter:true, fmt:v=>(v>0?'+':'')+Math.round(v*100)+'%'},
   grain:      {min:0,   max:1,   step:.02,hasCenter:false,fmt:v=>Math.round(v*100)+'%'},
   vignette:   {min:-1,  max:1,   step:.04,hasCenter:true, fmt:v=>(v>0?'+':'')+Math.round(v*100)+'%'},
+  focus:      {min:0,   max:1,   step:.01,hasCenter:false,fmt:v=>v.toFixed(2)} // <-- ÚJ
 };
 const TPX=14; 
 let ddrag=false,dlast=0,doff=0;
 
 function nT(){const m=MODES[S.mode];return Math.round((m.max-m.min)/m.step);}
-function getV(){return{exposure:S.exposure,shadows:S.shadows,highlights:S.highlights,tone:S.tone,grain:S.grain,vignette:S.vignette}[S.mode];}
+function getV(){
+  return {exposure:S.exposure,shadows:S.shadows,highlights:S.highlights,tone:S.tone,grain:S.grain,vignette:S.vignette,focus:S.focusDist}[S.mode];
+}
+
 function setV(v){
   const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
   const prevGrain=S.grain;
-  if(S.mode==='exposure')S.exposure=v;else if(S.mode==='shadows')S.shadows=v;else if(S.mode==='highlights')S.highlights=v;else if(S.mode==='tone')S.tone=v;else if(S.mode==='grain')S.grain=v;else S.vignette=v;
-  // Ha a grain 0-ról indult el vagy 0-ra tért vissza, frissítjük a canvas felbontást
+  if(S.mode==='exposure')S.exposure=v;
+  else if(S.mode==='shadows')S.shadows=v;
+  else if(S.mode==='highlights')S.highlights=v;
+  else if(S.mode==='tone')S.tone=v;
+  else if(S.mode==='grain')S.grain=v;
+  else if(S.mode==='focus'){
+    S.focusDist=v;
+    if(S.mfActive && S.stream){
+      const tk = S.stream.getVideoTracks()[0];
+      if(tk) tk.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: v }] }).catch(()=>{});
+    }
+  }
+  else S.vignette=v;
+  
   if(S.mode==='grain' && ((prevGrain===0)!==(S.grain===0))) updateCanvasDimensions();
   markUniformsDirty();
   return v;
@@ -1233,6 +1251,17 @@ async function initCam(preferredDeviceId = null){
         S.focusLock = null;
         const fring = document.getElementById('focus-ring');
         if (fring) fring.classList.add('hidden');
+        // --- MF RESET BESZÚRÁSA ---
+        S.mfActive = false;
+        const mfBtn = document.getElementById('mf-toggle-btn');
+        if (mfBtn) mfBtn.classList.remove('active');
+        if (S.mode === 'focus') {
+          S.mode = 'exposure';
+          const expBtn = document.querySelector('[data-mode="exposure"]');
+          if (expBtn) expBtn.classList.add('active');
+          buildDial(); syncDial();
+        }
+        // --------------------------
         updateFocusLabel();
         tk.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
         updateCanvasDimensions();
@@ -1329,15 +1358,56 @@ const camTogBtn = document.getElementById('cam-toggle-btn'); if(camTogBtn) camTo
 const torchTogBtn = document.getElementById('torch-toggle-btn'); if(torchTogBtn) torchTogBtn.addEventListener('click', toggleFlash);
 const dustTogBtn = document.getElementById('dust-toggle-btn'); if(dustTogBtn) dustTogBtn.addEventListener('click', toggleDust);
 
-const fxRndBtn = document.getElementById('fx-rnd-btn');
-if (fxRndBtn) {
-  fxRndBtn.addEventListener('click', () => {
-    if (!window.FX) return;
-    if (window.FX.active) {
-      window.FX.randomize();
-      markUniformsDirty();
+// A régi const fxRndBtn = document.getElementById('fx-rnd-btn'); ... TÖRÖLVE
+
+const mfTogBtn = document.getElementById('mf-toggle-btn');
+if (mfTogBtn) {
+  mfTogBtn.addEventListener('click', async () => {
+    if (!S.stream) return;
+    const tk = S.stream.getVideoTracks()[0];
+    if (!tk) return;
+    
+    let caps = {};
+    try { caps = tk.getCapabilities ? tk.getCapabilities() : {}; } catch(_) {}
+    
+    const fModes = Array.isArray(caps.focusMode) ? caps.focusMode : [];
+    if (!fModes.includes('manual') || typeof caps.focusDistance === 'undefined') {
+      showToast('Manuális fókusz nem támogatott ezen az eszközön');
+      return;
+    }
+
+    if (S.mfActive && S.mode === 'focus') {
+      // Ha már MF módban vagyunk, a gomb kikapcsolja
+      S.mfActive = false;
+      mfTogBtn.classList.remove('active');
+      S.mode = 'exposure'; // Vissza EV-re
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      const expBtn = document.querySelector('[data-mode="exposure"]');
+      if (expBtn) expBtn.classList.add('active');
+      
+      tk.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(()=>{});
+      updateFocusLabel('AF');
+      buildDial(); syncDial();
     } else {
-      toggleDust();
+      // Bekapcsolás, vagy ha a slider másmódban van, visszahozza a fókusz slidert
+      S.mfActive = true;
+      mfTogBtn.classList.add('active');
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      S.mode = 'focus';
+      
+      // Dinamikusan beolvassuk a telefon lencséjének fizikai határait
+      MODES.focus.min = caps.focusDistance.min || 0;
+      MODES.focus.max = caps.focusDistance.max || 1;
+      MODES.focus.step = caps.focusDistance.step || ((MODES.focus.max - MODES.focus.min) / 50);
+      
+      let st = {}; try { st = tk.getSettings(); } catch(_) {}
+      if (S.focusDist === undefined || S.focusDist === 0.5) {
+          S.focusDist = typeof st.focusDistance === 'number' ? st.focusDistance : MODES.focus.min;
+      }
+      
+      tk.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: S.focusDist }] }).catch(()=>{});
+      updateFocusLabel('MF');
+      buildDial(); syncDial();
     }
   });
 }
