@@ -420,7 +420,9 @@ window.addEventListener('resize', updateCanvasDimensions);
    és az expo gomb levágódik. A visualViewport API a TÉNYLEGESEN látható
    magasságot adja, ezt írjuk CSS-változóba; a .shell ebből kapja a magasságát. */
 function syncViewportHeight(){
-  const h = Math.round((window.visualViewport && window.visualViewport.height) || window.innerHeight);
+  // A visualViewport iOS-en sokszor hibás értéket ad PWA módban (levágja a lenti sávot).
+  // Az innerHeight PWA-ban mindig a pontos, teljes képernyőmagasság.
+  const h = window.innerHeight;
   if (h > 0) document.documentElement.style.setProperty('--app-h', h + 'px');
 }
 syncViewportHeight();
@@ -640,14 +642,13 @@ if (vfOverlay) {
 
   function handleVfPointerUp(e) {
     try { vfOverlay.releasePointerCapture(e.pointerId); } catch (_) {}
-    if (vfPointers.has(e.pointerId) && vfPointers.size === 1 && !isPinching) {
-      triggerVfFocus(e);
-    }
+    // A koppintásos fókusz hívását töröltük innen
     vfPointers.delete(e.pointerId);
     if (vfPointers.size === 0) {
       isPinching = false;
     }
   }
+
   vfOverlay.addEventListener('pointerup', handleVfPointerUp);
   vfOverlay.addEventListener('pointercancel', handleVfPointerUp);
 }
@@ -662,243 +663,17 @@ if (vfOverlay) {
 // ott is, ahol a kamera hardveresen nem tud pont-alapú fénymérést.
 let aeSampleCv = null;
 
-function sampleAeBias(px, py){
-  try {
-    if (!vid || !vid.videoWidth) return 0;
-    if (!aeSampleCv) aeSampleCv = document.createElement('canvas');
-    const c = aeSampleCv; c.width = 32; c.height = 32;
-    const ctx = c.getContext('2d', { willReadFrequently: true });
-    
-    const fw = vid.videoWidth, fh = vid.videoHeight;
-    // A mintavételezési terület mérete
-    const rw = Math.max(16, Math.round(fw * 0.12));
-    const rh = Math.max(16, Math.round(fh * 0.12));
-    const sx = Math.min(Math.max(0, Math.round(px * fw - rw / 2)), fw - rw);
-    const sy = Math.min(Math.max(0, Math.round(py * fh - rh / 2)), fh - rh);
-    
-    ctx.drawImage(vid, sx, sy, rw, rh, 0, 0, 32, 32);
-    const d = ctx.getImageData(0, 0, 32, 32).data;
-    
-    let sumLum = 0;
-    let sumWeight = 0;
-    
-    // Pixel-szintű iteráció a 32x32-es mintán
-    for (let y = 0; y < 32; y++) {
-      for (let x = 0; x < 32; x++) {
-        const i = (y * 32 + x) * 4;
-        
-        // 1. KÖZÉPRE SÚLYOZÁS (Center-weighting)
-        // Kiszámoljuk a távolságot a középponttól (15.5, 15.5)
-        const dx = (x - 15.5) / 16.0;
-        const dy = (y - 15.5) / 16.0;
-        // Haranggörbe-szerű súlyozás: középen 1.0, a sarkok felé közelít a 0-hoz
-        const weight = Math.max(0, 1.0 - (dx * dx + dy * dy));
-        
-        // 2. LINEÁRIS SZÍNTÉR (Fast sRGB to Linear approximation)
-        // A hatványozás (val/255)^2 elég jó és nagyon gyors közelítése a 2.2-es gammának
-        const r = d[i] / 255.0;
-        const g = d[i+1] / 255.0;
-        const b = d[i+2] / 255.0;
-        const linearLum = 0.2126 * (r * r) + 0.7152 * (g * g) + 0.0722 * (b * b);
-        
-        sumLum += linearLum * weight;
-        sumWeight += weight;
-      }
-    }
-    
-    // A súlyozott, lineáris átlagfényesség
-    const avgLinear = sumLum / sumWeight;
-    
-    // Fotográfiai "Középszürke" (Middle Gray) célpont lineáris térben ~18% (0.18)
-    const targetLum = 0.18; 
-    
-    // Védelem a 0-val osztás ellen mélyfekete árnyékoknál
-    const safeAvg = Math.max(avgLinear, 0.002);
-    
-    // Kiszámoljuk a szükséges EV eltolást (Exposure Value)
-    // Ha a mért terület sötétebb a középszürkénél (pl. 0.09), az eredmény +1 EV
-    let bias = Math.log2(targetLum / safeAvg);
-    
-    // Csillapítás: ne húzzuk rá 100%-osan a digitális kompenzációt, 
-    // hogy megmaradjon a jelenet természetes kontrasztja (0.75x szorzó)
-    bias *= 0.75;
-    
-    // Szigorú vágás a túlvezérlés ellen
-    return Math.max(-1.5, Math.min(1.5, bias));
-    
-  } catch (e) { 
-    dlog('sampleAeBias hiba: ' + (e && e.message)); 
-    return 0; 
-  }
-}
+
 
 function updateFocusLabel(txt){
   const fl = document.getElementById('hud-focus-label');
-  if (fl) fl.textContent = txt || (S.focusLock ? 'AF-L' : 'AF');
+  if (fl) fl.textContent = 'AF';
 }
 
-async function applyFocusLock(tk){
-  if (!S.focusLock || !tk) return { focus:false, exposure:false };
-  let caps = {};
-  try { caps = tk.getCapabilities ? tk.getCapabilities() : {}; } catch(_) {}
-  const out = { focus:false, exposure:false };
-
-  // Biztonsági clamp: A kamera API szigorúan [0, 1] közötti értéket fogad el
-  const safeX = Math.max(0.0, Math.min(1.0, S.focusLock.x));
-  const safeY = Math.max(0.0, Math.min(1.0, S.focusLock.y));
-  const poi = [{ x: safeX, y: safeY }];
-
-  const fModes = Array.isArray(caps.focusMode) ? caps.focusMode : [];
-  let advancedConstraints = {};
-  let constraintAdded = false;
-
-  // 1-2. LÉPÉS EGYESÍTVE: Pont kijelölése és fókusz indítása egyetlen csomagban
-  if ('pointsOfInterest' in caps) {
-    advancedConstraints.pointsOfInterest = poi;
-    constraintAdded = true;
-  }
-  
-  if (fModes.includes('single-shot')) {
-    advancedConstraints.focusMode = 'single-shot';
-    constraintAdded = true;
-  }
-
-  if (constraintAdded) {
-    try {
-      await tk.applyConstraints({ advanced: [advancedConstraints] });
-      out.focus = true;
-    } catch(e) {
-      dlog('Focus applyConstraints hiba: ' + (e && e.name));
-    }
-  }
-
-  // 2/b) Betonozás: ha van manual mód + focusDistance, a beállt távolságot
-  // rögzítjük – ez felbontásváltást is túlél, újra-fókuszsöprés nélkül
-  S.lockedFocusDistance = null;
-  if (out.focus && fModes.includes('manual') && caps.focusDistance) {
-    try {
-      await waitForVideoFrames(4, 350); // hagyjuk beállni az egyszeri fókuszt
-      const st0 = tk.getSettings();
-      if (typeof st0.focusDistance === 'number') {
-        await tk.applyConstraints({ focusMode: 'manual', focusDistance: st0.focusDistance });
-        S.lockedFocusDistance = st0.focusDistance;
-        dlog('Fókusz betonozva: manual @' + st0.focusDistance.toFixed(2));
-      }
-    } catch(e){ dlog('manual betonozás nem ment: ' + (e && e.name)); }
-  }
-
-  // 3) Expozíció hardveres zárása: single-shot, vagy manual a most beállt értékekkel
-  const eModes = Array.isArray(caps.exposureMode) ? caps.exposureMode : [];
-  if (eModes.includes('single-shot')) {
-    try { await tk.applyConstraints({ exposureMode: 'single-shot' }); out.exposure = true; } catch(_) {}
-  } else if (eModes.includes('manual')) {
-    try {
-      const st1 = tk.getSettings();
-      const c = { exposureMode: 'manual' };
-      if (caps.exposureTime && typeof st1.exposureTime === 'number') c.exposureTime = st1.exposureTime;
-      if (caps.iso && typeof st1.iso === 'number') c.iso = st1.iso;
-      await tk.applyConstraints(c);
-      out.exposure = true;
-      dlog('Expozíció zárolva: manual' + (c.exposureTime ? ' t=' + c.exposureTime : ''));
-    } catch(e){ dlog('exposure manual zár elutasítva: ' + (e && e.name)); }
-  }
-
-  // 4) Visszaellenőrzés a TÉNYLEGES beállításokból
-  try {
-    const st = tk.getSettings();
-    out.focus = out.focus && (st.focusMode === 'single-shot' || st.focusMode === 'manual');
-    out.exposure = out.exposure && (st.exposureMode === 'manual' || st.exposureMode === 'single-shot');
-    dlog('Zár ellenőrzés: focusMode=' + st.focusMode + ' exposureMode=' + st.exposureMode);
-  } catch(_) {}
-  return out;
-}
-
-function clearFocusLock(){
-  S.focusLock = null;
-  S.lockedFocusDistance = null;
-  S.aeBias = 0;
-  markUniformsDirty();
-  const tk = S.stream && S.stream.getVideoTracks()[0];
-  if (tk) {
-    (async () => {
-      try { await tk.applyConstraints({ focusMode: 'continuous' }); } catch(_) {}
-      try { await tk.applyConstraints({ exposureMode: 'continuous' }); } catch(_) {}
-    })();
-  }
-  const ring = document.getElementById('focus-ring');
-  if (ring) ring.classList.add('hidden');
-  updateFocusLabel();
-}
 
 let lastVfTap = { t: 0, x: 0, y: 0 };
 
-async function triggerVfFocus(e) {
-  if (!vfOverlay) return;
-  const r = vfOverlay.getBoundingClientRect();
-  const rx = (e.clientX - r.left) / r.width;
-  const ry = (e.clientY - r.top) / r.height;
 
-  // A DUPLA KOPPINTÁS LOGIKA TELJESEN ELTÁVOLÍTVA.
-  // Bármilyen új koppintás egyszerűen áthelyezi a fókuszt.
-
-  const ring = document.getElementById('focus-ring');
-  if (ring) {
-    ring.style.left = rx * 100 + '%';
-    ring.style.top = ry * 100 + '%';
-    ring.classList.remove('hidden');
-    ring.classList.add('locked');
-  }
-
-  if (!S.stream) return;
-  const tk = S.stream.getVideoTracks()[0];
-  if (!tk) return;
-
-  // --- SHADER-SZINKRONIZÁLT LOGIKA ---
-  const cAR = r.width / r.height; // A látható canvas képaránya
-  const vAR = S.vidW / S.vidH;    // A nyers videó képaránya
-  
-  let scX = 1.0, scY = 1.0;
-  if (vAR > cAR) {
-    scX = cAR / vAR;
-  } else {
-    scY = vAR / cAR;
-  }
-  
-  scX /= S.zoom;
-  scY /= S.zoom;
-  
-  // Visszafejtjük a videótextúra koordinátát a UI koppintásból
-  let videoX = 0.5 + (rx - 0.5) * scX;
-  let videoY = 0.5 + (ry - 0.5) * scY;
-  
-  videoX = Math.max(0, Math.min(1, videoX));
-  videoY = Math.max(0, Math.min(1, videoY));
-
-  S.focusLock = { x: videoX, y: videoY };
-
-  // Szoftveres fénymérés-zár: minden eszközön ad látható, zárolt hatást
-  S.aeBias = sampleAeBias(videoX, videoY);
-  markUniformsDirty();
-  dlog('TAP fókusz: videoXY=' + videoX.toFixed(2) + ',' + videoY.toFixed(2) + ' aeBias=' + S.aeBias.toFixed(2));
-
-  // Diag: a kamera képességeinek naplózása
-  try {
-    const caps = tk.getCapabilities ? tk.getCapabilities() : {};
-    dlog('Kamera caps: focusMode=' + JSON.stringify(caps.focusMode) + ' exposureMode=' + JSON.stringify(caps.exposureMode) + ' poi=' + ('pointsOfInterest' in caps) + ' torch=' + caps.torch);
-  } catch (_) {}
-  
-  const biasTxt = (S.aeBias >= 0 ? '+' : '') + S.aeBias.toFixed(1);
-  updateFocusLabel('AE-L ' + biasTxt); // előzetes; a hardveres zár után pontosítjuk
-  
-  // Végrehajtjuk az új, összevont fókusz parancsot
-  const lock = await applyFocusLock(tk);
-  updateFocusLabel((lock.focus ? (lock.exposure ? 'AE/AF-L ' : 'AF-L ') : 'AE-L ') + biasTxt);
-  
-  if (DIAG) {
-    let st = {}; try { st = tk.getSettings(); } catch(_) {}
-    dlog('Zár után settings: focusMode=' + st.focusMode + ' exposureMode=' + st.exposureMode + ' poi=' + JSON.stringify(st.pointsOfInterest));
-  }
-}
 
 function tryLoadLuts(){ return Promise.resolve(); }
 
@@ -1136,13 +911,7 @@ async function setStreamResolution(px, waitFrames = true) {
   // Felbontásváltáskor egyes eszközök újraindítják az AE/AF-et – a zárat
   // visszakényszerítjük. Betonozott (manual) fókusznál a tárolt távolságot
   // állítjuk vissza, így nincs újabb fókusz-söprés.
-  if (S.focusLock) {
-    if (S.lockedFocusDistance != null) {
-      tk.applyConstraints({ focusMode: 'manual', focusDistance: S.lockedFocusDistance }).catch(()=>{});
-    } else {
-      applyFocusLock(tk);
-    }
-  }
+  
 
   if (!waitFrames) {
     // Késleltetett utó-ellenőrzés: csak ha azóta nem jött újabb kérés,
@@ -1499,14 +1268,8 @@ function armCapture(e) {
   try { if (e && shutterBtn) shutterBtn.setPointerCapture(e.pointerId); } catch (_) {}
   
   armPromise = (async () => {
-    // JAVÍTÁS: Ha a felhasználó manuálisan rögzítette a fókuszt, TILOS
-    // felbontást váltani, különben a kameraszenzor hardveresen újraindul, 
-    // és eldobja a fókusz zárat.
-    if (!S.focusLock) {
-      await setStreamResolution(CAPTURE_RES);
-    } else {
-      dlog('AE/AF Lock aktív - felbontásváltás kihagyva a fókusz megtartása érdekében.');
-    }
+    // Sima felbontásváltás a mentéshez
+    await setStreamResolution(CAPTURE_RES);
 
     if (flashEnabled && S.stream) {
       const tk = S.stream.getVideoTracks()[0];
@@ -1523,7 +1286,7 @@ function armCapture(e) {
             torchArmed = (st.torch === true);
           }
         } catch (e) {
-          dlog('VAKU elutasítva: ' + (e && e.name));
+          dlog('VAKU elutasítva: ' + (e && e.name) + ' ' + (e && e.message));
         }
         if (!torchArmed) showToast('A kamera elutasította a vakut');
       }
