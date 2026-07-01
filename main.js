@@ -110,17 +110,17 @@ if (dialEl) {
   }, { passive: true });
   
   dialEl.addEventListener('pointermove', e => {
-    if (!ddrag) return;
-    if (S.mode === 'focus') {
-      updateFocusUI(e.clientX);
-    } else {
-      doff += (e.clientX - dlast);
-      const m = S.mode; // MODES számítás a ui.js setV függvényében történik
-      // Az itt lévő dMove logika ui.js-be szervezése vagy ide áthúzása:
-      // (Egyszerűsítve ui.js függőségekkel, o2v/v2o hívások helyett)
-      dlast = e.clientX;
-    }
-  }, { passive: true });
+  if (!ddrag) return;
+  if (S.mode === 'focus') {
+    updateFocusUI(e.clientX);
+  } else {
+    doff += (e.clientX - dlast);
+    const m = S.mode; // MODES számítás a ui.js setV függvényében történik
+    // Az itt lévő dMove logika ui.js-be szervezése vagy ide áthúzása:
+    // (Egyszerűsítve ui.js függőségekkel, o2v/v2o hívások helyett)
+    dlast = e.clientX;
+  }
+ }, { passive: true });
   
   dialEl.addEventListener('pointerup', () => ddrag = false);
   dialEl.addEventListener('pointercancel', () => ddrag = false);

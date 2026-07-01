@@ -222,7 +222,7 @@ export async function capture() {
     sv.toBlob(blob => {
       const now = new Date(), p = n => String(n).padStart(2, '0');
       const nm = (PROF[S.simKey]?.name || 'CUSTOM').replace(/[ &]/g, '_');
-      const fname = `Analogia_${nm}_${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours()}${p(now.getMinutes())}${p(now.getSeconds())}.jpg`;
+      const fname = `Analogia_${nm}_${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.jpg`;
       
       if (Store.activeBlobUrl) URL.revokeObjectURL(Store.activeBlobUrl);
       const url = URL.createObjectURL(blob);

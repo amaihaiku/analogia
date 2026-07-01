@@ -184,11 +184,9 @@
 <video id="vid" playsinline autoplay muted style="display:none"></video>
 <canvas id="save-canvas" style="display:none"></canvas>
 <script src="fx.js?v=35"></script>
+<script type="module" src="state.js"></script>
+<script type="module" src="ui.js"></script>
+<script type="module" src="webgl.js"></script>
 <script type="module" src="main.js"></script>
-<script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=34');
-  }
-</script>
 </body>
 </html>
