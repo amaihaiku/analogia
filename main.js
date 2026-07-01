@@ -102,6 +102,14 @@ document.getElementById('mf-toggle-btn')?.addEventListener('click', (e) => {
   S.mfActive = !S.mfActive;
   e.currentTarget.classList.toggle('active', S.mfActive);
   
+  const fring = document.getElementById('focus-ring');
+  if (fring) {
+    fring.classList.toggle('hidden', !S.mfActive);
+    fring.style.top = '50%';
+    fring.style.left = '50%';
+    fring.classList.remove('locked');
+  }
+  
   if (S.mfActive) {
     S.mode = 'focus';
     updateFocusLabel('MF');
@@ -144,42 +152,52 @@ document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
 
 // Tárcsa eseménykezelése
 const dialEl = document.getElementById('dial-wrap');
-let ddrag = false, dlast = 0, doff = 0;
+let ddrag = false, dstart = 0, initialValue = 0;
+
 if (dialEl) {
   dialEl.addEventListener('pointerdown', e => {
     ddrag = true;
     try { dialEl.setPointerCapture(e.pointerId); } catch (_) {}
-    if (S.mode === 'focus') updateFocusUI(e.clientX);
-    else dlast = e.clientX;
+    
+    if (S.mode === 'focus') {
+      updateFocusUI(e.clientX);
+    } else {
+      dstart = e.clientX;
+      initialValue = {exposure:S.exposure, shadows:S.shadows, highlights:S.highlights, tone:S.tone, grain:S.grain, vignette:S.vignette}[S.mode];
+    }
   }, { passive: true });
   
   dialEl.addEventListener('pointermove', e => {
     if (!ddrag) return;
+    
     if (S.mode === 'focus') {
       updateFocusUI(e.clientX);
     } else {
-      // Kiszámoljuk a mozgás mértékét
-      const deltaX = e.clientX - dlast;
-      doff += deltaX;
+      const totalDeltaX = e.clientX - dstart;
+      const modes_meta = {
+        exposure:   { step:.05 },
+        shadows:    { step:.02 },
+        highlights: { step:.02 },
+        tone:       { step:.04 },
+        grain:      { step:.02 },
+        vignette:   { step:.04 },
+      };
+      const step = modes_meta[S.mode]?.step || 0.01;
+      const sensitivity = step / 14;
+      const newValue = initialValue + totalDeltaX * sensitivity;
       
-      // Átváltjuk a pixeles elmozdulást az aktuális mód értékére
-      // A ui.js-ben lévő képlet alapján (o2v logika):
-      // Körülbelül 14 pixel (TPX) felel meg egy lépésnek
-      const stepValue = (S.mode === 'grain') ? 0.005 : 0.01; // finomhangolt érzékenység
-      const currentVal = {exposure:S.exposure, shadows:S.shadows, highlights:S.highlights, tone:S.tone, grain:S.grain, vignette:S.vignette}[S.mode];
-      
-      // Új érték beállítása a ui.js exportált függvényével
-      setV(currentVal - (deltaX * stepValue));
-      
-      // Tárcsa grafikájának és a HUD-nak az azonnali frissítése
+      setV(newValue);
       syncDial();
-      
-      dlast = e.clientX;
     }
   }, { passive: true });
   
-  dialEl.addEventListener('pointerup', () => ddrag = false);
-  dialEl.addEventListener('pointercancel', () => ddrag = false);
+  dialEl.addEventListener('pointerup', () => {
+    ddrag = false;
+  });
+  
+  dialEl.addEventListener('pointercancel', () => {
+    ddrag = false;
+  });
 }
 
 // Módváltó gombok (EV, Shadows, Highlights, Tone, Grain, Vig)
