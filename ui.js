@@ -147,6 +147,21 @@ export function getSelectedFrame() {
   return activeRadio ? activeRadio.value : 'none';
 }
 
+export function syncDateToggleAvailability() {
+  const dateTog = document.getElementById('date-tog');
+  if (!dateTog) return;
+  const frame = getSelectedFrame();
+  const dateGroup = dateTog.closest('.toggle-group');
+  if (frame === 'antik') {
+    if (dateTog.checked) dateTog.checked = false;
+    dateTog.disabled = true;
+    if (dateGroup) dateGroup.classList.add('disabled');
+  } else {
+    dateTog.disabled = false;
+    if (dateGroup) dateGroup.classList.remove('disabled');
+  }
+}
+
 export function updateLiveDate() {
   let el = document.getElementById('live-date');
   if (!el) {
@@ -156,23 +171,35 @@ export function updateLiveDate() {
     const bezel = document.querySelector('.vf-bezel');
     if (bezel) bezel.appendChild(el);
   }
+  
   const dateTog = document.getElementById('date-tog');
   if (!dateTog || !dateTog.checked) {
     el.classList.add('hidden');
     return;
   }
-  el.classList.remove('hidden');
-
+  
   const frame = getSelectedFrame();
-  el.style.fontFamily = `'bebas neue', sans-serif`;
-  if(frame === 'polaroid' || frame === 'film') {
-    el.style.right = '15px';
-    el.style.bottom = '15px';
-    el.style.fontFamily = `'ibm plex mono', monospace`;
+  
+  if (frame === 'antik') {
+    el.classList.add('hidden');
+    return;
   } else {
-    el.style.right = '20px';
-    el.style.bottom = '14px';
+    const now = new Date(), p = n => String(n).padStart(2, '0');
+    el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
+    el.style.left = 'auto';
+    el.style.width = 'auto';
+    el.style.right = '12px';
+    el.style.textAlign = 'right';
+    el.style.fontFamily = "'Courier New', Courier, monospace";
+    el.style.fontWeight = 'bold';
+    el.style.fontSize = '14px';
+    el.style.color = '#e8830a';
+
+    if (frame === 'film') {
+      el.style.bottom = 'calc(13% + 12px)'; 
+    } else {
+      el.style.bottom = '12px';
+    }
   }
-  const now = new Date(), p = n => String(n).padStart(2, '0');
-  el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
+  el.classList.remove('hidden');
 }

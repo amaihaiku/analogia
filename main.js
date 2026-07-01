@@ -8,7 +8,7 @@ import { loadExternalFilters } from './filters.js';
 import { initGL, uploadLUT, markUniformsDirty, updateCanvasDimensions, render, gl } from './webgl.js';
 import { listVideoDevices, initCam, cycleCamera, torchOff, setTorchArmed, torchArmed, setStreamResolution } from './camera.js';
 import { capture, setSavingIndicator } from './capture.js';
-import { buildDial, syncDial, updateFocusUI, getSelectedFrame, updateLiveDate, updateFocusLabel, setV } from './ui.js';
+import { buildDial, syncDial, updateFocusUI, getSelectedFrame, updateLiveDate, updateFocusLabel, setV, syncDateToggleAvailability } from './ui.js';
 
 let armPromise = null;
 
@@ -146,7 +146,8 @@ document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
     document.getElementById('preview-frame-film')?.classList.toggle('hidden', frame !== 'film');
     document.getElementById('preview-frame-antik')?.classList.toggle('hidden', frame !== 'antik');
     
-    // Frissítjük a dátumot is, mert antik keretnél pl. el kell rejteni
+    // Dátum és kapcsoló állapotának frissítése
+    syncDateToggleAvailability();
     updateLiveDate();
     
     // WebGL újrarajzolás kényszerítése
@@ -301,6 +302,7 @@ document.querySelector('.brand')?.addEventListener('click', () => {
   }
   
   syncDial();
+  syncDateToggleAvailability();
   updateLiveDate();
   
   await listVideoDevices();
