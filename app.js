@@ -568,6 +568,8 @@ function getV(){
   return {exposure:S.exposure,shadows:S.shadows,highlights:S.highlights,tone:S.tone,grain:S.grain,vignette:S.vignette,focus:S.focusDist}[S.mode];
 }
 
+let mfTimeout = null;
+
 function setV(v){
   const m=MODES[S.mode];v=Math.max(m.min,Math.min(m.max,Math.round(v/m.step)*m.step));
   const prevGrain=S.grain;
@@ -580,7 +582,18 @@ function setV(v){
     S.focusDist=v;
     if(S.mfActive && S.stream){
       const tk = S.stream.getVideoTracks()[0];
-      if(tk) tk.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: v }] }).catch(()=>{});
+      if(tk) {
+        // JAVÍTÁS: Nem bombázzuk a kamerát minden pixelnyi húzásnál.
+        // Csak akkor küldjük el a parancsot, ha 50ms-ig nem jött új érték.
+        clearTimeout(mfTimeout);
+        mfTimeout = setTimeout(() => {
+          // A kompatibilitás miatt a focusMode a legfelső szintre kerül!
+          tk.applyConstraints({ 
+            focusMode: 'manual', 
+            advanced: [{ focusDistance: S.focusDist }] 
+          }).catch(()=>{});
+        }, 50);
+      }
     }
   }
   else S.vignette=v;
@@ -589,6 +602,8 @@ function setV(v){
   markUniformsDirty();
   return v;
 }
+
+
 function o2v(o){const m=MODES[S.mode],N=nT();return m.min+(-o/N/TPX)*(m.max-m.min);}
 function v2o(v){const m=MODES[S.mode],N=nT();return-((v-m.min)/(m.max-m.min))*N*TPX;}
 
@@ -1003,7 +1018,7 @@ async function setStreamResolution(px, waitFrames = true) {
     // ledobja az első kérést, ezért a váltás után azonnal újra ráküldjük.
     if (S.mfActive && S.focusDist !== undefined) {
       try { 
-        await tk.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: S.focusDist }] }); 
+        tk.applyConstraints({ focusMode: 'continuous', advanced: [{ focusMode: 'continuous' }] }).catch(()=>{});
       } catch(e) {}
     }
 
@@ -1495,7 +1510,8 @@ if (mfTogBtn) {
           S.focusDist = typeof st.focusDistance === 'number' ? st.focusDistance : MODES.focus.min;
       }
       
-      tk.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: S.focusDist }] }).catch(()=>{});
+      
+      tk.applyConstraints({ focusMode: 'manual', advanced: [{ focusDistance: S.focusDist }] }).catch(()=>{});
       updateFocusLabel('MF');
       buildDial(); syncDial();
     }
