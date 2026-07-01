@@ -596,28 +596,214 @@ function buildDial(){
   const el=document.getElementById('dial-ticks');if(!el)return;
   el.innerHTML='';
   const m=MODES[S.mode],N=nT();
-  const cIdx=m.hasCenter?Math.round((0-m.min)/m.step):-1;
-  for(let i=0;i<=N;i++){
-    const t=document.createElement('div'),maj=i%5===0,isC=(i===cIdx);
-    t.className='dt'+(maj?' maj':'')+(isC?' zero':'');
-    t.style.height=(maj?28:15)+'px';
-    el.appendChild(t);
-  }
   const cm=document.querySelector('.dial-center-h');
-  if(cm)cm.style.opacity=m.hasCenter?'1':'0';
-  const dialWrap=document.getElementById('dial-wrap');
-  const centerLine=document.querySelector('.dial-center-h');
-  if(dialWrap&&centerLine)centerLine.style.left=dialWrap.clientWidth/2+'px';
+
+  if (S.mode === 'focus') {
+    // JAVÍTÁS: Statikus, teljes szélességű fókusz-skála generálása (Nem lóg ki)
+    el.style.padding = '0';
+    el.style.width = '100%';
+    el.style.justifyContent = 'space-between';
+    
+    for(let i=0; i<=20; i++){
+      const t=document.createElement('div');
+      const maj = i%5===0;
+      t.className='dt' + (maj?' maj':'');
+      t.style.height=(maj?28:15)+'px';
+      el.appendChild(t);
+    }
+    if(cm) cm.style.opacity = '1'; 
+  } else {
+    // Eredeti tologatható (végtelenített) mód
+    el.style.padding = '0 50vw';
+    el.style.width = 'auto';
+    el.style.justifyContent = 'flex-start';
+    
+    const cIdx=m.hasCenter?Math.round((0-m.min)/m.step):-1;
+    for(let i=0;i<=N;i++){
+      const t=document.createElement('div'),maj=i%5===0,isC=(i===cIdx);
+      t.className='dt'+(maj?' maj':'')+(isC?' zero':'');
+      t.style.height=(maj?28:15)+'px';
+      el.appendChild(t);
+    }
+    if(cm) cm.style.opacity=m.hasCenter?'1':'0';
+    const dialWrap=document.getElementById('dial-wrap');
+    if(dialWrap&&cm) cm.style.left=dialWrap.clientWidth/2+'px';
+  }
 }
 
-function syncDial(){const v=getV(),o=v2o(v);doff=o;const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${o - 7}px)`;updHUD(v);}
-function updHUD(v){const m=MODES[S.mode],f=m.fmt(v);document.getElementById('hud-mode-val').textContent=f;document.getElementById('hud-mode-name').textContent=S.mode.toUpperCase();}
+function syncDial(){
+  const el=document.getElementById('dial-ticks');
+  const centerLine=document.querySelector('.dial-center-h');
+  const dialWrap=document.getElementById('dial-wrap');
+  
+  if (S.mode === 'focus') {
+    // JAVÍTÁS: Fókusz módban a hátteret nem mozgatjuk, csak a sárga csúszkát (centerLine) a %-os helyére
+    if (el) el.style.transform = `translateX(0px)`;
+    if (centerLine && dialWrap) {
+      const m = MODES.focus;
+      const range = m.max - m.min || 1; // Nullával osztás elkerülése
+      const pct = (S.focusDist - m.min) / range;
+      centerLine.style.left = (pct * dialWrap.clientWidth) + 'px';
+    }
+    updHUD(S.focusDist);
+  } else {
+    // Eredeti mód többi csúszkához
+    const v=getV(),o=v2o(v);doff=o;
+    if(el)el.style.transform=`translateX(${o - 7}px)`;
+    if(centerLine && dialWrap) centerLine.style.left = (dialWrap.clientWidth / 2) + 'px';
+    updHUD(v);
+  }
+}
+
 function dMove(dx){doff+=dx;const v=setV(o2v(doff));doff=v2o(v);const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${doff - 7}px)`;updHUD(v);}
 
 const dialEl=document.getElementById('dial-wrap');
+
+// JAVÍTÁS: Segédfüggvény az MF slider direkt pozícionálásához
+function updateFocusUI(clientX) {
+  if (!dialEl) return;
+  const rect = dialEl.getBoundingClientRect();
+  let x = clientX - rect.left;
+  // Bezárjuk a képernyő szélei közé az érintést
+  x = Math.max(0, Math.min(rect.width, x));
+  const pct = x / rect.width;
+  
+  const m = MODES.focus;
+  const val = m.min + pct * (m.max - m.min);
+  
+  setV(val);  // Beállítja a hardvert
+  syncDial(); // Frissíti a sárga csík helyzetét
+}
+
 if (dialEl) {
-  dialEl.addEventListener('pointerdown',e=>{ddrag=true;dlast=e.clientX;dialEl.setPointerCapture(e.pointerId);},{passive:true});
-  dialEl.addEventListener('pointermove',e=>{if(!ddrag)return;dMove(e.clientX-dlast);dlast=e.clientX;},{passive:true});
+  dialEl.addEventListener('pointerdown',e=>{
+    ddrag=true;
+    dialEl.setPointerCapture(e.pointerId);
+    if (S.mode === 'focus') {
+      updateFocusUI(e.clientX); // Azonnali ugrás a bökés helyére
+    } else {
+      dlast=e.clientX;
+    }
+  },{passive:true});
+  
+  dialEl.addEventListener('pointermove',e=>{
+    if(!ddrag)return;
+    if (S.mode === 'focus') {
+      updateFocusUI(e.clientX); // Követi az ujjadat a sávon
+    } else {
+      dMove(e.clientX-dlast);
+      dlast=e.clientX;
+    }
+  },{passive:true});
+  
+  dialEl.addEventListener('pointerup',()=>ddrag=false);
+  dialEl.addEventListener('pointercancel',()=>ddrag=false);
+}
+
+function buildDial(){
+  const el=document.getElementById('dial-ticks');if(!el)return;
+  el.innerHTML='';
+  const m=MODES[S.mode],N=nT();
+  const cm=document.querySelector('.dial-center-h');
+
+  if (S.mode === 'focus') {
+    // JAVÍTÁS: Statikus, teljes szélességű fókusz-skála generálása (Nem lóg ki)
+    el.style.padding = '0';
+    el.style.width = '100%';
+    el.style.justifyContent = 'space-between';
+    
+    for(let i=0; i<=20; i++){
+      const t=document.createElement('div');
+      const maj = i%5===0;
+      t.className='dt' + (maj?' maj':'');
+      t.style.height=(maj?28:15)+'px';
+      el.appendChild(t);
+    }
+    if(cm) cm.style.opacity = '1'; 
+  } else {
+    // Eredeti tologatható (végtelenített) mód
+    el.style.padding = '0 50vw';
+    el.style.width = 'auto';
+    el.style.justifyContent = 'flex-start';
+    
+    const cIdx=m.hasCenter?Math.round((0-m.min)/m.step):-1;
+    for(let i=0;i<=N;i++){
+      const t=document.createElement('div'),maj=i%5===0,isC=(i===cIdx);
+      t.className='dt'+(maj?' maj':'')+(isC?' zero':'');
+      t.style.height=(maj?28:15)+'px';
+      el.appendChild(t);
+    }
+    if(cm) cm.style.opacity=m.hasCenter?'1':'0';
+    const dialWrap=document.getElementById('dial-wrap');
+    if(dialWrap&&cm) cm.style.left=dialWrap.clientWidth/2+'px';
+  }
+}
+
+function syncDial(){
+  const el=document.getElementById('dial-ticks');
+  const centerLine=document.querySelector('.dial-center-h');
+  const dialWrap=document.getElementById('dial-wrap');
+  
+  if (S.mode === 'focus') {
+    // JAVÍTÁS: Fókusz módban a hátteret nem mozgatjuk, csak a sárga csúszkát (centerLine) a %-os helyére
+    if (el) el.style.transform = `translateX(0px)`;
+    if (centerLine && dialWrap) {
+      const m = MODES.focus;
+      const range = m.max - m.min || 1; // Nullával osztás elkerülése
+      const pct = (S.focusDist - m.min) / range;
+      centerLine.style.left = (pct * dialWrap.clientWidth) + 'px';
+    }
+    updHUD(S.focusDist);
+  } else {
+    // Eredeti mód többi csúszkához
+    const v=getV(),o=v2o(v);doff=o;
+    if(el)el.style.transform=`translateX(${o - 7}px)`;
+    if(centerLine && dialWrap) centerLine.style.left = (dialWrap.clientWidth / 2) + 'px';
+    updHUD(v);
+  }
+}
+
+function dMove(dx){doff+=dx;const v=setV(o2v(doff));doff=v2o(v);const el=document.getElementById('dial-ticks');if(el)el.style.transform=`translateX(${doff - 7}px)`;updHUD(v);}
+
+const dialEl=document.getElementById('dial-wrap');
+
+// JAVÍTÁS: Segédfüggvény az MF slider direkt pozícionálásához
+function updateFocusUI(clientX) {
+  if (!dialEl) return;
+  const rect = dialEl.getBoundingClientRect();
+  let x = clientX - rect.left;
+  // Bezárjuk a képernyő szélei közé az érintést
+  x = Math.max(0, Math.min(rect.width, x));
+  const pct = x / rect.width;
+  
+  const m = MODES.focus;
+  const val = m.min + pct * (m.max - m.min);
+  
+  setV(val);  // Beállítja a hardvert
+  syncDial(); // Frissíti a sárga csík helyzetét
+}
+
+if (dialEl) {
+  dialEl.addEventListener('pointerdown',e=>{
+    ddrag=true;
+    dialEl.setPointerCapture(e.pointerId);
+    if (S.mode === 'focus') {
+      updateFocusUI(e.clientX); // Azonnali ugrás a bökés helyére
+    } else {
+      dlast=e.clientX;
+    }
+  },{passive:true});
+  
+  dialEl.addEventListener('pointermove',e=>{
+    if(!ddrag)return;
+    if (S.mode === 'focus') {
+      updateFocusUI(e.clientX); // Követi az ujjadat a sávon
+    } else {
+      dMove(e.clientX-dlast);
+      dlast=e.clientX;
+    }
+  },{passive:true});
+  
   dialEl.addEventListener('pointerup',()=>ddrag=false);
   dialEl.addEventListener('pointercancel',()=>ddrag=false);
 }
@@ -901,6 +1087,8 @@ function trackSupportsTorch(track) {
 // 3) A beragadás-ellenőrzés KÉSLELTETVE fut, mert az applyConstraints után a
 //    getSettings() egy ideig még a régi értéket mutathatja.
 let resReqId = 0;
+
+let resReqId = 0;
 async function setStreamResolution(px, waitFrames = true) {
   if (!S.stream) return false;
   const tk = S.stream.getVideoTracks()[0];
@@ -909,15 +1097,31 @@ async function setStreamResolution(px, waitFrames = true) {
 
   let ok = true;
   try {
-    await tk.applyConstraints({ width: { ideal: px, max: px }, height: { ideal: px, max: px } });
+    // 1. Alap felbontás kérés
+    const constraints = { width: { ideal: px, max: px }, height: { ideal: px, max: px } };
+
+    // JAVÍTÁS: Ha MF aktív, a felbontásváltással EGYÜTT küldjük a manuális fókuszt!
+    if (S.mfActive && S.focusDist !== undefined) {
+      constraints.advanced = [{ focusMode: 'manual', focusDistance: S.focusDist }];
+    }
+
+    await tk.applyConstraints(constraints);
+
+    // 2. Biztonsági rázárás: Néhány Android telefon a felbontásváltás miatt
+    // ledobja az első kérést, ezért a váltás után azonnal újra ráküldjük.
+    if (S.mfActive && S.focusDist !== undefined) {
+      try { 
+        await tk.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: S.focusDist }] }); 
+      } catch(e) {}
+    }
+
     if (waitFrames) await waitForVideoFrames(3, 250);
   } catch (_) { ok = false; }
 
   const sync = () => {
     let st = {};
     try { st = tk.getSettings(); } catch (_) {}
-    // A videoWidth/Height a TÉNYLEGESEN dekódolt képkocka mérete – Samsungon a
-    // getSettings() néha a kért (nem a valós) értéket jelenti, ezért az élvez elsőbbséget.
+    // A videoWidth/Height a TÉNYLEGESEN dekódolt képkocka mérete
     S.vidW = vid.videoWidth || st.width || S.vidW;
     S.vidH = vid.videoHeight || st.height || S.vidH;
     const resEl = document.getElementById('hud-res');
@@ -926,17 +1130,11 @@ async function setStreamResolution(px, waitFrames = true) {
     return st;
   };
   sync();
-  // Felbontásváltáskor egyes eszközök újraindítják az AE/AF-et – a zárat
-  // visszakényszerítjük. Betonozott (manual) fókusznál a tárolt távolságot
-  // állítjuk vissza, így nincs újabb fókusz-söprés.
   
-
   if (!waitFrames) {
-    // Késleltetett utó-ellenőrzés: csak ha azóta nem jött újabb kérés,
-    // nem mentünk éppen, és a track tényleg beragadt nagy felbontáson.
+    // Késleltetett utó-ellenőrzés
     setTimeout(() => {
       if (myReq !== resReqId || !S.stream || S.saving) return;
-      // Csak ha még mindig EZ az aktív track – kameraváltás közben nem nyúlunk bele
       if (S.stream.getVideoTracks()[0] !== tk || tk.readyState !== 'live') return;
       const st = sync();
       if (Math.min(S.vidW, S.vidH) > px * 1.5) {
