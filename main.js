@@ -98,6 +98,50 @@ document.getElementById('dust-toggle-btn')?.addEventListener('click', (e) => {
   }
 });
 
+document.getElementById('mf-toggle-btn')?.addEventListener('click', (e) => {
+  S.mfActive = !S.mfActive;
+  e.currentTarget.classList.toggle('active', S.mfActive);
+  
+  if (S.mfActive) {
+    S.mode = 'focus';
+    updateFocusLabel('MF');
+  } else {
+    S.mode = 'exposure';
+    updateFocusLabel('AF');
+    // Visszaállítjuk a kamerát automata fókuszra
+    if (S.stream) {
+      const tk = S.stream.getVideoTracks()[0];
+      tk?.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(()=>{});
+    }
+  }
+  
+  // Újraépítjük a tárcsát az új módnak megfelelően
+  buildDial();
+  syncDial();
+});
+
+// Dátum kapcsoló figyelése
+document.getElementById('date-tog')?.addEventListener('change', () => {
+  updateLiveDate();
+});
+
+// Keret rádiógombok figyelése
+document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    const frame = getSelectedFrame();
+    
+    // Élőkép keretek elrejtése/megjelenítése a VF-en (Viewport)
+    document.getElementById('preview-frame-film')?.classList.toggle('hidden', frame !== 'film');
+    document.getElementById('preview-frame-antik')?.classList.toggle('hidden', frame !== 'antik');
+    
+    // Frissítjük a dátumot is, mert antik keretnél pl. el kell rejteni
+    updateLiveDate();
+    
+    // WebGL újrarajzolás kényszerítése
+    markUniformsDirty();
+  });
+});
+
 // Tárcsa eseménykezelése
 const dialEl = document.getElementById('dial-wrap');
 let ddrag = false, dlast = 0, doff = 0;
@@ -110,17 +154,29 @@ if (dialEl) {
   }, { passive: true });
   
   dialEl.addEventListener('pointermove', e => {
-  if (!ddrag) return;
-  if (S.mode === 'focus') {
-    updateFocusUI(e.clientX);
-  } else {
-    doff += (e.clientX - dlast);
-    const m = S.mode; // MODES számítás a ui.js setV függvényében történik
-    // Az itt lévő dMove logika ui.js-be szervezése vagy ide áthúzása:
-    // (Egyszerűsítve ui.js függőségekkel, o2v/v2o hívások helyett)
-    dlast = e.clientX;
-  }
- }, { passive: true });
+    if (!ddrag) return;
+    if (S.mode === 'focus') {
+      updateFocusUI(e.clientX);
+    } else {
+      // Kiszámoljuk a mozgás mértékét
+      const deltaX = e.clientX - dlast;
+      doff += deltaX;
+      
+      // Átváltjuk a pixeles elmozdulást az aktuális mód értékére
+      // A ui.js-ben lévő képlet alapján (o2v logika):
+      // Körülbelül 14 pixel (TPX) felel meg egy lépésnek
+      const stepValue = (S.mode === 'grain') ? 0.005 : 0.01; // finomhangolt érzékenység
+      const currentVal = {exposure:S.exposure, shadows:S.shadows, highlights:S.highlights, tone:S.tone, grain:S.grain, vignette:S.vignette}[S.mode];
+      
+      // Új érték beállítása a ui.js exportált függvényével
+      setV(currentVal - (deltaX * stepValue));
+      
+      // Tárcsa grafikájának és a HUD-nak az azonnali frissítése
+      syncDial();
+      
+      dlast = e.clientX;
+    }
+  }, { passive: true });
   
   dialEl.addEventListener('pointerup', () => ddrag = false);
   dialEl.addEventListener('pointercancel', () => ddrag = false);
