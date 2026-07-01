@@ -77,6 +77,11 @@ export function buildDial() {
   const m = MODES[S.mode], N = nT();
   const cm = document.querySelector('.dial-center-h');
 
+  // Stílusok nullázása, hogy a CSS-ből jövő alapértékek érvényesüljenek
+  el.style.padding = '';
+  el.style.width = '';
+  el.style.justifyContent = '';
+
   if (S.mode === 'focus') {
     el.style.padding = '0'; el.style.width = '100%'; el.style.justifyContent = 'space-between';
     for(let i=0; i<=20; i++){
@@ -88,7 +93,7 @@ export function buildDial() {
     }
     if(cm) cm.style.opacity = '1'; 
   } else {
-    el.style.padding = '0 50vw'; el.style.width = 'auto'; el.style.justifyContent = 'flex-start';
+    // Itt már a CSS-ben megadott 'padding: 0 50vw' és egyéb stílusok érvényesülnek
     const cIdx = m.hasCenter ? Math.round((0 - m.min) / m.step) : -1;
     for(let i=0; i<=N; i++){
       const t = document.createElement('div'), maj = i%5===0, isC = (i===cIdx);
@@ -152,11 +157,22 @@ export function updateLiveDate() {
     if (bezel) bezel.appendChild(el);
   }
   const dateTog = document.getElementById('date-tog');
-  if (!dateTog || !dateTog.checked || getSelectedFrame() === 'antik') {
+  if (!dateTog || !dateTog.checked) {
     el.classList.add('hidden');
     return;
   }
+  el.classList.remove('hidden');
+
+  const frame = getSelectedFrame();
+  el.style.fontFamily = `'bebas neue', sans-serif`;
+  if(frame === 'polaroid' || frame === 'film') {
+    el.style.right = '15px';
+    el.style.bottom = '15px';
+    el.style.fontFamily = `'ibm plex mono', monospace`;
+  } else {
+    el.style.right = '20px';
+    el.style.bottom = '14px';
+  }
   const now = new Date(), p = n => String(n).padStart(2, '0');
   el.textContent = `${p(now.getMonth()+1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
-  el.classList.remove('hidden');
 }

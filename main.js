@@ -72,6 +72,10 @@ filmBtn?.addEventListener('click', () => { buildFilmList(); document.getElementB
 modalClose?.addEventListener('click', () => document.getElementById('film-modal')?.classList.add('hidden'));
 modalBackdrop?.addEventListener('click', () => document.getElementById('film-modal')?.classList.add('hidden'));
 
+document.getElementById('photo-overlay-close')?.addEventListener('click', () => {
+  document.getElementById('photo-overlay')?.classList.add('hidden');
+});
+
 // Kamera és Funkció Gombok
 document.getElementById('cam-toggle-btn')?.addEventListener('click', cycleCamera);
 document.getElementById('de-toggle-btn')?.addEventListener('click', (e) => {

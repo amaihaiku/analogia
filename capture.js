@@ -194,7 +194,7 @@ export async function capture() {
     }
 
     const dateTog = document.getElementById('date-tog');
-    if (dateTog && dateTog.checked && frame !== 'antik') {
+    if (dateTog && dateTog.checked) {
       const now = new Date(), p = n => String(n).padStart(2, '0');
       const fs = Math.max(14, photoS * .036 | 0);
       const ds = `${p(now.getMonth() + 1)} ${p(now.getDate())} '${String(now.getFullYear()).slice(-2)}`;
