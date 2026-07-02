@@ -189,7 +189,7 @@ if (dialEl) {
       };
       const step = modes_meta[S.mode]?.step || 0.01;
       const sensitivity = step / 14;
-      const newValue = initialValue + totalDeltaX * sensitivity;
+      const newValue = initialValue - totalDeltaX * sensitivity;
       
       setV(newValue);
       syncDial();
@@ -255,6 +255,19 @@ if (shutterBtn) {
   shutterBtn.addEventListener('pointerup', capture);
   shutterBtn.addEventListener('pointercancel', disarmCapture);
 }
+
+// Exit gomb
+document.getElementById('exit-btn')?.addEventListener('click', () => {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(()=>{});
+  } else {
+    if (S.stream) {
+      S.stream.getTracks().forEach(t => t.stop());
+      S.ready = false;
+    }
+    window.location.href = 'about:blank';
+  }
+});
 
 // Diag Rejtett Gomb
 let diagTaps = 0, diagTapTimer = null;
