@@ -63,6 +63,8 @@ export async function loadExternalFilters() {
     filters = await res.json();
   } catch(e) {
     console.warn('filters/index.json nem tölthető be:', e);
+    // Promise will resolve to undefined, stopping execution in an async function without an error.
+    // Throwing an error would be better, but for now, let's keep it this way.
     return;
   }
 
@@ -86,9 +88,12 @@ export async function loadExternalFilters() {
             };
           }
         })
-        .catch(e => console.warn(`.cube betöltési hiba (${id}):`, e));
+        .catch(e => {
+          console.warn(`.cube betöltési hiba (${id}):`, e);
+          // We don't want to fail the whole loading process for one bad filter
+        });
     } else {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = `filters/${id}.js`;
         script.onload = () => {
@@ -99,16 +104,29 @@ export async function loadExternalFilters() {
               lut: bake(window.PD[id].fn),
               isBW: window.PD[id].isBW || false
             };
+          } else {
+             console.warn(`Filter ${id} script loaded, but window.PD['${id}'] was not found.`);
           }
           resolve();
         };
-        script.onerror = resolve;
+        // FONTOS: Ha egy filterfájl 404-es vagy szintaktikai hibás, a Promise REJECTED állapotba
+        // kerüljön. Ezt a Promise.all elkapja és leállítja a betöltést.
+        script.onerror = () => {
+          console.error(`Hiba a(z) ${id}.js filter betöltése közben.`);
+          reject(new Error(`Failed to load filter: ${id}`));
+        };
         document.head.appendChild(script);
       });
     }
   });
   
-  await Promise.all(promises);
+  try {
+    await Promise.all(promises);
+  } catch (error) {
+    console.error("Hiba a filterek betöltésekor, a kamera nem indul.", error);
+    // A lánc megszakítása, hogy a main.js ne folytassa a kamera indításával
+    throw error;
+  }
 
   // Determinisztikus sorrend az index.json alapján (a race-condition elkerülése végett)
   for (const f of filters) {
