@@ -17,6 +17,13 @@
     "isBW": true 
   },
     { 
+    "id": "infrared", 
+    "type": "cube", 
+    "name": "infra", 
+    "sub": "BW", 
+    "isBW": true 
+  },
+    { 
     "id": "aerochrome", 
     "type": "cube", 
     "name": "Aerochrome", 
@@ -29,5 +36,4 @@
   { "id": "cross", "type": "js" },
   { "id": "highcontrast_bw", "type": "js" },
   { "id": "l_monochrome", "type": "js" },
-  { "id": "infrared", "type": "js" }
 ]
