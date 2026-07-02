@@ -65,6 +65,9 @@ export function setV(v) {
 
   if (S.mode === 'focus') {
     v = Math.max(m.min, Math.min(m.max, v));
+    if (m.step > 0) {
+      v = Math.round(v / m.step) * m.step;
+    }
     S.focusDist = v;
     if (S.mfActive && S.stream) {
       const tk = S.stream.getVideoTracks()[0];
