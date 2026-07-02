@@ -11,6 +11,10 @@ import { capture, setSavingIndicator } from './capture.js';
 import { buildDial, syncDial, updateFocusUI, getSelectedFrame, updateLiveDate, updateFocusLabel, setV, syncDateToggleAvailability } from './ui.js';
 
 let armPromise = null;
+let vfPointers = new Map();
+let vfInitDist = 0;
+let vfInitZoom = 1.0;
+let isPinching = false;
 
 function checkStandaloneGuard() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -155,6 +159,48 @@ document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
   });
 });
 
+// Pinch-to-Zoom & Tap-to-focus
+const vfOverlay = document.getElementById('focus-overlay');
+if (vfOverlay) {
+  vfOverlay.addEventListener('pointerdown', e => {
+    try { vfOverlay.setPointerCapture(e.pointerId); } catch (_) {}
+    vfPointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+    if (vfPointers.size === 2) {
+      isPinching = true;
+      const pts = [...vfPointers.values()];
+      vfInitDist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+      vfInitZoom = S.zoom;
+    }
+  });
+
+  vfOverlay.addEventListener('pointermove', e => {
+    if (!vfPointers.has(e.pointerId)) return;
+    vfPointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+    if (isPinching && vfPointers.size === 2) {
+      const pts = [...vfPointers.values()];
+      const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+      if (vfInitDist > 0) {
+        const factor = dist / vfInitDist;
+        let nz = vfInitZoom * factor;
+        nz = Math.max(1.0, Math.min(4.0, nz)); // Clamp zoom between 1x and 4x
+        S.zoom = Math.round(nz / 0.05) * 0.05; // Snap to 0.05 steps
+        markUniformsDirty();
+      }
+    }
+  });
+
+  const handleVfPointerUp = (e) => {
+    try { vfOverlay.releasePointerCapture(e.pointerId); } catch (_) {}
+    vfPointers.delete(e.pointerId);
+    if (vfPointers.size < 2) {
+      isPinching = false;
+    }
+  };
+
+  vfOverlay.addEventListener('pointerup', handleVfPointerUp);
+  vfOverlay.addEventListener('pointercancel', handleVfPointerUp);
+}
+
 // Tárcsa eseménykezelése
 const dialEl = document.getElementById('dial-wrap');
 let ddrag = false, dstart = 0, initialValue = 0;
@@ -188,7 +234,7 @@ if (dialEl) {
         vignette:   { step:.04 },
       };
       const step = modes_meta[S.mode]?.step || 0.01;
-      const sensitivity = step / 14;
+      const sensitivity = step / 8.4;
       const newValue = initialValue - totalDeltaX * sensitivity;
       
       setV(newValue);
