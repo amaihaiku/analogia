@@ -8,7 +8,7 @@ import { loadExternalFilters } from './filters.js';
 import { initGL, uploadLUT, markUniformsDirty, updateCanvasDimensions, render, gl } from './webgl.js';
 import { listVideoDevices, initCam, cycleCamera, torchOff, setTorchArmed, torchArmed, setStreamResolution } from './camera.js';
 import { capture, setSavingIndicator } from './capture.js';
-import { buildDial, syncDial, updateFocusUI, getSelectedFrame, updateLiveDate, updateFocusLabel, setV, syncDateToggleAvailability } from './ui.js';
+import { buildDial, syncDial, updateFocusUI, getSelectedFrame, updateLiveDate, updateFocusLabel, setV, syncDateToggleAvailability, updateFocusCapabilities } from './ui.js';
 
 let armPromise = null;
 let vfPointers = new Map();
@@ -121,6 +121,17 @@ document.getElementById('mf-toggle-btn')?.addEventListener('click', (e) => {
   if (S.mfActive) {
     S.mode = 'focus';
     updateFocusLabel('MF');
+    if (S.stream) {
+      const tk = S.stream.getVideoTracks()[0];
+      if (!updateFocusCapabilities(tk)) {
+        // Fallback or error message if capabilities are not supported
+        showToast('Manuális fókusz nem támogatott');
+        S.mfActive = false;
+        e.currentTarget.classList.remove('active');
+        S.mode = 'exposure';
+        updateFocusLabel('AF');
+      }
+    }
   } else {
     S.mode = 'exposure';
     updateFocusLabel('AF');
@@ -311,7 +322,7 @@ document.getElementById('exit-btn')?.addEventListener('click', () => {
       S.stream.getTracks().forEach(t => t.stop());
       S.ready = false;
     }
-    window.location.href = 'about:blank';
+    window.close();
   }
 });
 

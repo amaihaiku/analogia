@@ -21,7 +21,27 @@ const MODES = {
 
 const TPX = 14; 
 let ddrag = false, dlast = 0, doff = 0;
-let mfTimeout = null;
+
+export function updateFocusCapabilities(track) {
+  if (!track || !track.getCapabilities) {
+    dlog('Focus capabilities not supported.');
+    return false;
+  }
+  try {
+    const caps = track.getCapabilities();
+    const focusCaps = caps.focusDistance;
+    if (focusCaps) {
+      MODES.focus.min = focusCaps.min || 0;
+      MODES.focus.max = focusCaps.max || 1;
+      MODES.focus.step = focusCaps.step || 0.01;
+      dlog(`Focus range updated: min=${MODES.focus.min}, max=${MODES.focus.max}, step=${MODES.focus.step}`);
+      return true;
+    }
+  } catch (e) {
+    dlog('Could not get focus capabilities: ' + e.message);
+  }
+  return false;
+}
 
 // --- HUD Frissítés (A HIÁNYZÓ FÜGGVÉNY JAVÍTVA) ---
 export function updHUD(v) {
@@ -41,27 +61,26 @@ function getV() { return {exposure:S.exposure,shadows:S.shadows,highlights:S.hig
 
 export function setV(v) {
   const m = MODES[S.mode];
-  v = Math.max(m.min, Math.min(m.max, Math.round(v / m.step) * m.step));
   const prevGrain = S.grain;
-  
-  if(S.mode==='exposure') S.exposure=v;
-  else if(S.mode==='shadows') S.shadows=v;
-  else if(S.mode==='highlights') S.highlights=v;
-  else if(S.mode==='tone') S.tone=v;
-  else if(S.mode==='grain') S.grain=v;
-  else if(S.mode==='focus'){
+
+  if (S.mode === 'focus') {
+    v = Math.max(m.min, Math.min(m.max, v));
     S.focusDist = v;
-    if(S.mfActive && S.stream){
+    if (S.mfActive && S.stream) {
       const tk = S.stream.getVideoTracks()[0];
-      if(tk) {
-        clearTimeout(mfTimeout);
-        mfTimeout = setTimeout(() => {
-          tk.applyConstraints({ focusMode: 'manual', advanced: [{ focusDistance: S.focusDist }] }).catch(()=>{});
-        }, 50);
+      if (tk && tk.readyState === 'live') {
+        tk.applyConstraints({ focusMode: 'manual', advanced: [{ focusDistance: S.focusDist }] }).catch(() => {});
       }
     }
+  } else {
+    v = Math.max(m.min, Math.min(m.max, Math.round(v / m.step) * m.step));
+    if(S.mode==='exposure') S.exposure=v;
+    else if(S.mode==='shadows') S.shadows=v;
+    else if(S.mode==='highlights') S.highlights=v;
+    else if(S.mode==='tone') S.tone=v;
+    else if(S.mode==='grain') S.grain=v;
+    else if(S.mode==='vignette') S.vignette=v;
   }
-  else S.vignette=v;
   
   if(S.mode==='grain' && ((prevGrain===0) !== (S.grain===0))) updateCanvasDimensions();
   markUniformsDirty();
