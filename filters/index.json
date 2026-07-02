@@ -19,7 +19,7 @@
     { 
     "id": "infrared", 
     "type": "cube", 
-    "name": "infra", 
+    "name": "infrared", 
     "sub": "BW", 
     "isBW": true 
   },
@@ -35,5 +35,5 @@
   { "id": "bleach", "type": "js" },
   { "id": "cross", "type": "js" },
   { "id": "highcontrast_bw", "type": "js" },
-  { "id": "l_monochrome", "type": "js" },
+  { "id": "l_monochrome", "type": "js" }
 ]
