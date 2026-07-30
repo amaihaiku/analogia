@@ -32,6 +32,18 @@ function checkStandaloneGuard() {
   }
 }
 
+function syncViewportHeight() {
+  const h = window.innerHeight;
+  if (h > 0) {
+    document.documentElement.style.setProperty('--app-h', `${h}px`);
+  }
+}
+
+syncViewportHeight();
+if (window.visualViewport) window.visualViewport.addEventListener('resize', syncViewportHeight);
+window.addEventListener('resize', syncViewportHeight);
+window.addEventListener('orientationchange', () => setTimeout(syncViewportHeight, 250));
+
 // PWA Telepítés
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
@@ -309,7 +321,12 @@ function disarmCapture() {
 
 if (shutterBtn) {
   shutterBtn.addEventListener('pointerdown', armCapture, { passive: true });
-  shutterBtn.addEventListener('pointerup', capture);
+  shutterBtn.addEventListener('pointerup', async () => {
+    if (armPromise) {
+      try { await armPromise; } catch (_) {}
+    }
+    capture();
+  });
   shutterBtn.addEventListener('pointercancel', disarmCapture);
 }
 

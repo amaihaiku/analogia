@@ -133,7 +133,7 @@ window.FX = {
         if (u_fx_quality > 0.5) {
           maskNoise = snoise(rotatedUv * 1.8 + vec2(t * 0.05, t * -0.02)) * 0.07;
         }
-        float mask = smoothstep(0.55, 0.0, distance(rotatedUv.x, u_fx_position.x) + maskNoise);
+        float mask = smoothstep(0.0, 0.55, distance(rotatedUv.x, u_fx_position.x) + maskNoise);
 
         float finalIntensity = leakPattern * mask * u_fx_intensity;
         finalIntensity = clamp(finalIntensity, 0.0, 1.8);
