@@ -187,13 +187,13 @@ export async function setStreamResolution(px, waitFrames = true) {
     const constraints = px > 0
       ? { width: { ideal: px, max: px }, height: { ideal: px, max: px } }
       : { width: { ideal: 9999 }, height: { ideal: 9999 } };
-    if (S.mfActive && S.focusDist !== undefined) {
+    if (S.focusDist !== undefined) {
       constraints.advanced = [{ focusMode: 'manual', focusDistance: S.focusDist }];
     }
 
     await tk.applyConstraints(constraints);
 
-    if (S.mfActive && S.focusDist !== undefined) {
+    if (S.focusDist !== undefined) {
       try { 
         tk.applyConstraints({ focusMode: 'continuous', advanced: [{ focusMode: 'continuous' }] }).catch(()=>{});
       } catch(e) {}

@@ -312,7 +312,9 @@ function armCapture(e) {
 function disarmCapture() {
   armPromise = null;
   torchOff();
-  if (!S.saving) setStreamResolution(PREVIEW_RES, false);
+  if (!S.saving) {
+    setStreamResolution(PREVIEW_RES, false);
+  }
 }
 
 if (shutterBtn) {
@@ -322,6 +324,11 @@ if (shutterBtn) {
       try { await armPromise; } catch (_) {}
     }
     capture();
+    if (!S.saving) {
+      setTimeout(() => {
+        if (!S.saving) disarmCapture();
+      }, 200);
+    }
   });
   shutterBtn.addEventListener('pointercancel', disarmCapture);
 }
