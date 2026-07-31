@@ -184,7 +184,9 @@ export async function setStreamResolution(px, waitFrames = true) {
   let ok = true;
   
   try {
-    const constraints = { width: { ideal: px, max: px }, height: { ideal: px, max: px } };
+    const constraints = px > 0
+      ? { width: { ideal: px, max: px }, height: { ideal: px, max: px } }
+      : { width: { ideal: 9999 }, height: { ideal: 9999 } };
     if (S.mfActive && S.focusDist !== undefined) {
       constraints.advanced = [{ focusMode: 'manual', focusDistance: S.focusDist }];
     }

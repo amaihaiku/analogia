@@ -8,7 +8,7 @@ import { loadExternalFilters } from './filters.js';
 import { initGL, uploadLUT, markUniformsDirty, updateCanvasDimensions, render, gl } from './webgl.js';
 import { listVideoDevices, initCam, cycleCamera, torchOff, setTorchArmed, torchArmed, setStreamResolution } from './camera.js';
 import { capture, setSavingIndicator } from './capture.js';
-import { buildDial, syncDial, updateFocusUI, getSelectedFrame, updateLiveDate, updateFocusLabel, setV, syncDateToggleAvailability, updateFocusCapabilities } from './ui.js';
+import { buildDial, syncDial, updateFocusUI, getSelectedFrame, updateLiveDate, updateFocusLabel, setV, syncDateToggleAvailability } from './ui.js';
 
 let armPromise = null;
 let vfPointers = new Map();
@@ -118,45 +118,47 @@ document.getElementById('dust-toggle-btn')?.addEventListener('click', (e) => {
   }
 });
 
-document.getElementById('mf-toggle-btn')?.addEventListener('click', (e) => {
-  S.mfActive = !S.mfActive;
-  e.currentTarget.classList.toggle('active', S.mfActive);
-  
-  const fring = document.getElementById('focus-ring');
-  if (fring) {
-    fring.classList.toggle('hidden', !S.mfActive);
-    fring.style.top = '50%';
-    fring.style.left = '50%';
-    fring.classList.remove('locked');
+function updateFramePreviewState() {
+  const frame = getSelectedFrame();
+  const disableFrames = S.aspectRatio === '3:2';
+  const filmFrame = document.getElementById('preview-frame-film');
+  const antikFrame = document.getElementById('preview-frame-antik');
+  filmFrame?.classList.toggle('hidden', disableFrames || frame !== 'film');
+  antikFrame?.classList.toggle('hidden', disableFrames || frame !== 'antik');
+
+  const frameGroup = document.querySelector('.frame-radio-group');
+  if (frameGroup) {
+    frameGroup.classList.toggle('disabled', disableFrames);
+    frameGroup.querySelectorAll('input').forEach(input => {
+      input.disabled = disableFrames;
+    });
   }
-  
-  if (S.mfActive) {
-    S.mode = 'focus';
-    updateFocusLabel('MF');
-    if (S.stream) {
-      const tk = S.stream.getVideoTracks()[0];
-      if (!updateFocusCapabilities(tk)) {
-        // Fallback or error message if capabilities are not supported
-        showToast('Manuális fókusz nem támogatott');
-        S.mfActive = false;
-        e.currentTarget.classList.remove('active');
-        S.mode = 'exposure';
-        updateFocusLabel('AF');
-      }
-    }
-  } else {
-    S.mode = 'exposure';
-    updateFocusLabel('AF');
-    // Visszaállítjuk a kamerát automata fókuszra
-    if (S.stream) {
-      const tk = S.stream.getVideoTracks()[0];
-      tk?.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(()=>{});
-    }
+}
+
+function updateAspectRatioUI() {
+  const aspectBtn = document.getElementById('aspect-toggle-btn');
+  const aspectText = aspectBtn?.querySelector('.btn-text');
+  const bezel = document.querySelector('.vf-bezel');
+
+  if (aspectBtn) {
+    aspectBtn.classList.toggle('active', S.aspectRatio === '3:2');
+    if (aspectText) aspectText.textContent = S.aspectRatio;
+    aspectBtn.title = `Képarány: ${S.aspectRatio}`;
   }
-  
-  // Újraépítjük a tárcsát az új módnak megfelelően
-  buildDial();
-  syncDial();
+
+  if (bezel) {
+    bezel.classList.toggle('aspect-3-2', S.aspectRatio === '3:2');
+  }
+
+  updateFramePreviewState();
+  updateLiveDate();
+  updateCanvasDimensions();
+  markUniformsDirty();
+}
+
+document.getElementById('aspect-toggle-btn')?.addEventListener('click', (e) => {
+  S.aspectRatio = S.aspectRatio === '1:1' ? '3:2' : '1:1';
+  updateAspectRatioUI();
 });
 
 // Dátum kapcsoló figyelése
@@ -169,15 +171,9 @@ document.querySelectorAll('input[name="frame-opt"]').forEach(radio => {
   radio.addEventListener('change', () => {
     const frame = getSelectedFrame();
     
-    // Élőkép keretek elrejtése/megjelenítése a VF-en (Viewport)
-    document.getElementById('preview-frame-film')?.classList.toggle('hidden', frame !== 'film');
-    document.getElementById('preview-frame-antik')?.classList.toggle('hidden', frame !== 'antik');
-    
-    // Dátum és kapcsoló állapotának frissítése
+    updateFramePreviewState();
     syncDateToggleAvailability();
     updateLiveDate();
-    
-    // WebGL újrarajzolás kényszerítése
     markUniformsDirty();
   });
 });
@@ -391,6 +387,7 @@ document.querySelector('.brand')?.addEventListener('click', () => {
   syncDial();
   syncDateToggleAvailability();
   updateLiveDate();
+  updateAspectRatioUI();
   
   await listVideoDevices();
   if (navigator.mediaDevices?.getUserMedia) initCam();

@@ -85,6 +85,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var
 
 .vf-bezel{position:relative;width:min(100%, max(220px, calc(var(--app-h,100dvh) - 350px)));aspect-ratio:1/1;background:#000;border:2px solid var(--dim);overflow:hidden;box-shadow:inset 0 0 24px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.6)}
 #gl-canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+.vf-bezel.aspect-3-2{aspect-ratio:3/2}
+.frame-radio-group.disabled{opacity:.55;pointer-events:none}
 
 .preview-frame-film {
   position: absolute; inset: 0; pointer-events: none; z-index: 2;

@@ -88,8 +88,9 @@ export async function capture() {
     const frameW = snapW;
     const frameH = snapH;
     const srcShort = Math.min(frameW, frameH) || PREVIEW_RES;
-    const OUT = Math.max(PREVIEW_RES, Math.min(SAVE_RES, srcShort));
-    const frame = getSelectedFrame();
+    const maxSave = SAVE_RES > 0 ? Math.min(SAVE_RES, srcShort) : srcShort;
+    const OUT = Math.max(PREVIEW_RES, maxSave);
+    const frame = S.aspectRatio === '3:2' ? 'none' : getSelectedFrame();
     let cw = OUT, ch = OUT, photoX = 0, photoY = 0, photoS = OUT;
 
     if (frame === 'polaroid') {

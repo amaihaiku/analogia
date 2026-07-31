@@ -20,11 +20,11 @@ export const S = {
   exposure: 0, shadows: 0, highlights: 0, tone: 0, grain: 0, grainSize: 2, vignette: 0,
   zoom: 1.0,
   mode: 'exposure',
+  aspectRatio: '1:1',
   vidW: 1, vidH: 1,
   lastPhotoUrl: null,
   deActive: false,    
   deStage: 0,    
-  mfActive: false,
   focusDist: 0.5 
 };
 
@@ -49,8 +49,8 @@ export const Store = {
 
 // Felbontás konstansok
 export const PREVIEW_RES = 720;
-export const CAPTURE_RES = 1600;
-export const SAVE_RES = 1280;
+export const CAPTURE_RES = 0; // 0 = kérjük a kamerától a natív legjobb lehetséges felbontást
+export const SAVE_RES = 0; // 0 = engedélyezzük a kamera teljes elérhető mentési méretét
 
 // Gyakran használt alap DOM elemek
 // (Feltételezzük, hogy az ES6 modulok `defer` attribútummal töltődnek be,
