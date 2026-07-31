@@ -69,7 +69,7 @@ export function setV(v) {
       v = Math.round(v / m.step) * m.step;
     }
     S.focusDist = v;
-    if (S.mfActive && S.stream) {
+    if (S.stream) {
       const tk = S.stream.getVideoTracks()[0];
       if (tk && tk.readyState === 'live') {
         tk.applyConstraints({ focusMode: 'manual', advanced: [{ focusDistance: S.focusDist }] }).catch(() => {});

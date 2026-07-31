@@ -48,7 +48,7 @@ export const Store = {
 };
 
 // Felbontás konstansok
-export const PREVIEW_RES = 1440;
+export const PREVIEW_RES = 860;  // [720 gyenge kép] [1440 szaggat] [860 jó kompromisszum]
 export const CAPTURE_RES = 0; // 0 = kérjük a kamerától a natív legjobb lehetséges felbontást
 export const SAVE_RES = 0; // 0 = engedélyezzük a kamera teljes elérhető mentési méretét
 
