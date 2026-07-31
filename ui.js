@@ -174,6 +174,13 @@ export function syncDateToggleAvailability() {
   if (!dateTog) return;
   const frame = getSelectedFrame();
   const dateGroup = dateTog.closest('.toggle-group');
+
+  if (S.aspectRatio === '3:2') {
+    dateTog.disabled = false;
+    if (dateGroup) dateGroup.classList.remove('disabled');
+    return;
+  }
+
   if (frame === 'antik') {
     if (dateTog.checked) dateTog.checked = false;
     dateTog.disabled = true;
@@ -219,6 +226,8 @@ export function updateLiveDate() {
 
     if (frame === 'film') {
       el.style.bottom = 'calc(13% + 12px)'; 
+    } else if (S.aspectRatio === '3:2') {
+      el.style.bottom = 'calc((100% - 66.666%) / 2 + 12px)';
     } else {
       el.style.bottom = '12px';
     }

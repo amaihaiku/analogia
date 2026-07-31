@@ -138,7 +138,7 @@ function updateFramePreviewState() {
 function updateAspectRatioUI() {
   const aspectBtn = document.getElementById('aspect-toggle-btn');
   const aspectText = aspectBtn?.querySelector('.btn-text');
-  const bezel = document.querySelector('.vf-bezel');
+  const previewWrapper = document.getElementById('preview-wrapper');
 
   if (aspectBtn) {
     aspectBtn.classList.toggle('active', S.aspectRatio === '3:2');
@@ -146,8 +146,8 @@ function updateAspectRatioUI() {
     aspectBtn.title = `Képarány: ${S.aspectRatio}`;
   }
 
-  if (bezel) {
-    bezel.classList.toggle('aspect-3-2', S.aspectRatio === '3:2');
+  if (previewWrapper) {
+    previewWrapper.classList.toggle('aspect-3-2', S.aspectRatio === '3:2');
   }
 
   updateFramePreviewState();
