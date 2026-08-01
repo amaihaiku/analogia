@@ -223,6 +223,14 @@ export async function capture() {
       
       let tx = photoX + photoS - fs * 0.5;
       let ty = photoY + photoS - fs * 0.4;
+      // If we're in 3:2 preview mode the live-date on the preview
+      // is vertically offset (preview is centered in the bezel).
+      // Replicate that visual offset in the saved image so the date
+      // appears in the same place as on the live preview.
+      if (S.aspectRatio === '3:2') {
+        const vertPad = Math.round(outH / 6); // (100% - 66.666%) / 2 == 1/6
+        ty -= vertPad;
+      }
       if (frame === 'film') {
         ty = photoY + photoS - Math.round(OUT * 0.13) - fs * 0.4;
       }
