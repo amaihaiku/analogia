@@ -106,7 +106,7 @@ export async function capture() {
       }
     }
 
-    let cw = outW, ch = outH, photoX = 0, photoY = 0, photoS = outW;
+    let cw = outW, ch = outH, photoX = 0, photoY = 0, photoS = Math.min(outW, outH);
 
     if (frame === 'polaroid') {
       const pad = Math.round(outW * .06), bot = Math.round(outW * .22);
@@ -228,7 +228,7 @@ export async function capture() {
       // Replicate that visual offset in the saved image so the date
       // appears in the same place as on the live preview.
       if (S.aspectRatio === '3:2') {
-        const vertPad = Math.round(outH / 6); // (100% - 66.666%) / 2 == 1/6
+        const vertPad = Math.round(ch / 6); // use final canvas height
         ty -= vertPad;
       }
       if (frame === 'film') {
